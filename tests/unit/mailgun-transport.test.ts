@@ -1,4 +1,4 @@
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "../../src/RoverError.js";
 import { describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
 import { MailgunTransport } from "../../src/transports/MailgunTransport.js";
@@ -131,7 +131,7 @@ describe("rover > MailgunTransport (mailgun.js)", () => {
 		});
 	});
 
-	it("wraps errors as ReamError instances", async () => {
+	it("wraps errors as RoverError instances", async () => {
 		const { client } = makeFakeClient({
 			throwError: Object.assign(new Error("boom"), { status: 500 }),
 		});
@@ -140,7 +140,7 @@ describe("rover > MailgunTransport (mailgun.js)", () => {
 			domain: "d",
 			_client: client,
 		});
-		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(ReamError);
+		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(RoverError);
 	});
 
 	it("normalizes region (accepts 'EU' as 'eu', rejects unknown values)", () => {

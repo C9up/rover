@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { createHash, createHmac, randomBytes } from "node:crypto";
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "../RoverError.js";
 import {
 	type MailAttachment,
 	type MailMessage,
@@ -63,14 +63,14 @@ export class SesTransport implements MailTransport {
 				? normalizeConfig(config.region).toLowerCase()
 				: "";
 		if (!accessKeyId || !secretAccessKey || !rawRegion) {
-			throw new ReamError(
+			throw new RoverError(
 				"MAIL_PROVIDER_CONFIG",
 				"SES transport requires accessKeyId, secretAccessKey, and region",
 				{ hint: "Set all three in your mail config." },
 			);
 		}
 		if (!REGION_RE.test(rawRegion)) {
-			throw new ReamError(
+			throw new RoverError(
 				"MAIL_PROVIDER_CONFIG",
 				`SES region "${rawRegion}" is not a valid AWS region identifier`,
 				{
@@ -90,7 +90,7 @@ export class SesTransport implements MailTransport {
 			message.cc.length === 0 &&
 			message.bcc.length === 0
 		) {
-			throw new ReamError(
+			throw new RoverError(
 				"MAIL_PROVIDER_CONFIG",
 				"Mail message has no recipients",
 				{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
@@ -129,7 +129,7 @@ export class SesTransport implements MailTransport {
 				providerMessage,
 			};
 			if (retryAfter) ctx.retryAfter = retryAfter;
-			throw new ReamError("MAIL_PROVIDER_ERROR", `SES returned ${res.status}`, {
+			throw new RoverError("MAIL_PROVIDER_ERROR", `SES returned ${res.status}`, {
 				hint: "Inspect `context.upstreamStatus` to decide retry eligibility. `context.retryAfter` (when set) carries the provider's backoff hint in seconds.",
 				context: ctx,
 			});

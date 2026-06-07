@@ -3,10 +3,10 @@
  * wrapper used by the Mailgun / Resend / SendGrid HTTP transports.
  *
  * Covers the three errno-extraction shapes (top-level `.code`,
- * `.cause.code`, neither), `ReamError` pass-through, and message
+ * `.cause.code`, neither), `RoverError` pass-through, and message
  * fallback when the rejection carries no `.message`.
  */
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "../../src/RoverError.js";
 import { describe, expect, it } from "vitest";
 import { wrapFetchNetworkError } from "../../src/transports/fetchError.js";
 
@@ -16,7 +16,7 @@ describe("rover > wrapFetchNetworkError", () => {
 			code: "ECONNRESET",
 		});
 		const wrapped = wrapFetchNetworkError("mailgun", err);
-		expect(wrapped).toBeInstanceOf(ReamError);
+		expect(wrapped).toBeInstanceOf(RoverError);
 		expect(wrapped.code).toBe("MAIL_PROVIDER_ERROR");
 		expect(wrapped.message).toContain("mailgun fetch failed (ECONNRESET)");
 		const ctx = wrapped.context as Record<string, string>;
@@ -51,8 +51,8 @@ describe("rover > wrapFetchNetworkError", () => {
 		expect(ctx.providerMessage).toBe("fetch failed");
 	});
 
-	it("passes a pre-existing ReamError through unchanged", () => {
-		const original = new ReamError("MAIL_PROVIDER_ERROR", "already wrapped", {
+	it("passes a pre-existing RoverError through unchanged", () => {
+		const original = new RoverError("MAIL_PROVIDER_ERROR", "already wrapped", {
 			context: { provider: "x" },
 		});
 		const wrapped = wrapFetchNetworkError("ignored", original);

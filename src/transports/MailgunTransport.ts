@@ -1,4 +1,4 @@
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "../RoverError.js";
 import formData from "form-data";
 // mailgun.js is UMD-bundled; the class lives on `.default` under NodeNext.
 import MailgunModule from "mailgun.js";
@@ -42,7 +42,7 @@ export class MailgunTransport implements MailTransport {
 		const domain =
 			typeof config.domain === "string" ? normalizeConfig(config.domain) : "";
 		if (!apiKey || !domain) {
-			throw new ReamError(
+			throw new RoverError(
 				"MAIL_PROVIDER_CONFIG",
 				"Mailgun transport requires apiKey and domain",
 				{ hint: "Set { apiKey, domain } in your mail config." },
@@ -53,7 +53,7 @@ export class MailgunTransport implements MailTransport {
 		// Region: reject non-string when *defined* (wrong type signals a config
 		// bug — defaulting to "us" under those conditions is a compliance risk).
 		if (config.region !== undefined && typeof config.region !== "string") {
-			throw new ReamError(
+			throw new RoverError(
 				"MAIL_PROVIDER_CONFIG",
 				`Mailgun region must be a string ("us" or "eu"), got ${typeof config.region}`,
 				{ hint: "Set config.region explicitly as 'us' or 'eu'." },
@@ -64,7 +64,7 @@ export class MailgunTransport implements MailTransport {
 				? normalizeConfig(config.region).toLowerCase()
 				: "us";
 		if (rawRegion !== "us" && rawRegion !== "eu") {
-			throw new ReamError(
+			throw new RoverError(
 				"MAIL_PROVIDER_CONFIG",
 				`Mailgun region must be "us" or "eu", got "${rawRegion}"`,
 				{
@@ -103,7 +103,7 @@ export class MailgunTransport implements MailTransport {
 			message.cc.length === 0 &&
 			message.bcc.length === 0
 		) {
-			throw new ReamError(
+			throw new RoverError(
 				"MAIL_PROVIDER_CONFIG",
 				"Mail message has no recipients",
 				{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
@@ -159,8 +159,8 @@ export class MailgunTransport implements MailTransport {
  * mailgun.js — surface the original errno (`code`) in context so the retry
  * predicate can still classify it as transient.
  */
-function wrapMailgunError(err: unknown): ReamError {
-	if (err instanceof ReamError) return err;
+function wrapMailgunError(err: unknown): RoverError {
+	if (err instanceof RoverError) return err;
 	const anyErr = err as {
 		status?: unknown;
 		details?: string;
@@ -191,7 +191,7 @@ function wrapMailgunError(err: unknown): ReamError {
 			? (retryAfterHeader[0] ?? "")
 			: retryAfterHeader;
 	}
-	return new ReamError(
+	return new RoverError(
 		"MAIL_PROVIDER_ERROR",
 		`Mailgun returned ${status || "unknown"}`,
 		{

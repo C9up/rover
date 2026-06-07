@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "./RoverError.js";
 import nodemailer, { type Transporter } from "nodemailer";
 import { BaseMail } from "./BaseMail.js";
 import {
@@ -137,14 +137,14 @@ export class SmtpTransport implements MailTransport {
 		// timed out against a nonexistent local server. Fail at
 		// construction with an actionable message instead.
 		if (config.host !== undefined && typeof config.host !== "string") {
-			throw new ReamError(
+			throw new RoverError(
 				"MAIL_PROVIDER_CONFIG",
 				`SMTP host must be a string, got ${typeof config.host}`,
 				{ hint: "Set config.host to your SMTP server hostname." },
 			);
 		}
 		if (typeof config.host !== "string" || config.host.length === 0) {
-			throw new ReamError("MAIL_PROVIDER_CONFIG", "SMTP host is required", {
+			throw new RoverError("MAIL_PROVIDER_CONFIG", "SMTP host is required", {
 				hint: "Set config.host (e.g. process.env.SMTP_HOST). Use the fake / log transports for local development.",
 			});
 		}
@@ -158,7 +158,7 @@ export class SmtpTransport implements MailTransport {
 		// Partial auth config (only user OR only pass) is almost always a typo —
 		// fail fast rather than connect anonymously and let the server reject.
 		if ((user && !pass) || (!user && pass)) {
-			throw new ReamError(
+			throw new RoverError(
 				"MAIL_PROVIDER_CONFIG",
 				"SMTP auth requires both `user` and `pass` or neither",
 				{
@@ -188,7 +188,7 @@ export class SmtpTransport implements MailTransport {
 			message.cc.length === 0 &&
 			message.bcc.length === 0
 		) {
-			throw new ReamError(
+			throw new RoverError(
 				"MAIL_PROVIDER_CONFIG",
 				"Mail message has no recipients",
 				{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
@@ -229,8 +229,8 @@ export class SmtpTransport implements MailTransport {
  * in `context.networkCode` so `isRetryableError` can classify transient
  * network failures without losing the root cause.
  */
-function wrapSmtpError(err: unknown): ReamError {
-	if (err instanceof ReamError) return err;
+function wrapSmtpError(err: unknown): RoverError {
+	if (err instanceof RoverError) return err;
 	const anyErr = err as {
 		code?: string | number;
 		responseCode?: number;
@@ -246,7 +246,7 @@ function wrapSmtpError(err: unknown): ReamError {
 	if (typeof anyErr.code === "string") {
 		ctx.networkCode = anyErr.code;
 	}
-	return new ReamError(
+	return new RoverError(
 		"MAIL_PROVIDER_ERROR",
 		`SMTP failed: ${anyErr.message ?? "unknown"}`,
 		{
@@ -333,7 +333,7 @@ export class Mail {
 		for (const [name, transportConfig] of Object.entries(config.transports)) {
 			const factory = transportFactories[transportConfig.transport];
 			if (!factory) {
-				throw new ReamError(
+				throw new RoverError(
 					"MAIL_UNKNOWN_TRANSPORT",
 					`Unknown mail transport type '${transportConfig.transport}' (configured under name '${name}')`,
 					{
@@ -384,7 +384,7 @@ export class Mail {
 		options?: { transport?: string; queue?: string },
 	): Promise<string> {
 		if (this.#queue === null) {
-			throw new ReamError(
+			throw new RoverError(
 				"MAIL_QUEUE_REQUIRED",
 				"mail.sendLater() requires @c9up/bay QueueManager",
 				{
@@ -488,8 +488,8 @@ export class Mail {
 	 * references don't see their attempt counter overwritten.
 	 */
 	#withAttempts(err: unknown, attempts: number): unknown {
-		if (!(err instanceof ReamError)) return err;
-		const clone = new ReamError(err.code, err.message, {
+		if (!(err instanceof RoverError)) return err;
+		const clone = new RoverError(err.code, err.message, {
 			hint: err.hint,
 			sourceFile: err.sourceFile,
 			sourceLine: err.sourceLine,
@@ -604,7 +604,7 @@ function validateMailMessage(message: MailMessage): void {
 	// can yield `undefined` despite the type. Whitespace-only is also
 	// invalid per RFC 5321 reverse-path semantics.
 	if (typeof message.from !== "string" || message.from.trim() === "") {
-		throw new ReamError(
+		throw new RoverError(
 			"MAIL_INVALID_MESSAGE",
 			"Mail message has no `from` address",
 			{
@@ -622,7 +622,7 @@ function validateMailMessage(message: MailMessage): void {
 		(Array.isArray(message.cc) && message.cc.some(isNonEmptyAddress)) ||
 		(Array.isArray(message.bcc) && message.bcc.some(isNonEmptyAddress));
 	if (!hasRecipient) {
-		throw new ReamError(
+		throw new RoverError(
 			"MAIL_INVALID_MESSAGE",
 			"Mail message has no recipients",
 			{
@@ -640,7 +640,7 @@ function errorDescriptor(
 	err: unknown,
 	attempts: number,
 ): MailFailedEvent["error"] {
-	if (err instanceof ReamError) {
+	if (err instanceof RoverError) {
 		const statusStr = err.context.upstreamStatus;
 		const upstream = Number(statusStr);
 		return {

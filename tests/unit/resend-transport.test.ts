@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "../../src/RoverError.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
 import { ResendTransport } from "../../src/transports/ResendTransport.js";
@@ -141,10 +141,10 @@ describe("rover > ResendTransport", () => {
 		});
 	});
 
-	it("throws ReamError on 5xx", async () => {
+	it("throws RoverError on 5xx", async () => {
 		fetchSpy.mockResolvedValue(new Response("boom", { status: 500 }));
 		const t = new ResendTransport({ apiKey: "k" });
-		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(ReamError);
+		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(RoverError);
 	});
 
 	it("returns { providerId } from Resend success JSON body", async () => {

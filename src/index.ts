@@ -1,6 +1,7 @@
 export type { MailAddress } from "./BaseMail.js";
 export { BaseMail } from "./BaseMail.js";
 export { defineConfig } from "./config.js";
+export { RoverError } from "./RoverError.js";
 export type {
 	EmitterLike,
 	MailAttachment,

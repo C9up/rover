@@ -1,4 +1,4 @@
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "../../src/RoverError.js";
 import { describe, expect, it } from "vitest";
 import {
 	type EmitterLike,
@@ -39,8 +39,8 @@ class SpyEmitter implements EmitterLike {
 	}
 }
 
-const providerError = (status: number): ReamError =>
-	new ReamError("MAIL_PROVIDER_ERROR", `provider returned ${status}`, {
+const providerError = (status: number): RoverError =>
+	new RoverError("MAIL_PROVIDER_ERROR", `provider returned ${status}`, {
 		context: {
 			provider: "test",
 			upstreamStatus: String(status),
@@ -144,7 +144,7 @@ describe("rover > delivery events", () => {
 
 		await expect(
 			mail.send((m) => m.to("u@x.com").subject("Hi")),
-		).rejects.toBeInstanceOf(ReamError);
+		).rejects.toBeInstanceOf(RoverError);
 
 		const failed = emitter.events.find((e) => e.name === "mail.failed");
 		expect(failed).toBeDefined();

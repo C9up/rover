@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "../RoverError.js";
 import { getNative, type NativeRoverIr, toReamError } from "./loadNapi.js";
 
 // The compile + interpret hot path now runs in Rust via napi-rs
@@ -50,7 +50,7 @@ export async function renderFile(
 	return renderNative(ir, data, partials);
 }
 
-/** Compile inline source to an IR handle, mapping native errors to `ReamError`. */
+/** Compile inline source to an IR handle, mapping native errors to `RoverError`. */
 function compileSource(source: string): NativeRoverIr {
 	try {
 		return getNative().compile(source);
@@ -77,13 +77,13 @@ function dataReplacer(_key: string, value: unknown): unknown {
 		if (value >= MIN_SAFE_BIGINT && value <= MAX_SAFE_BIGINT) {
 			return Number(value);
 		}
-		throw new ReamError(
+		throw new RoverError(
 			"MAIL_TEMPLATE_SYNTAX",
 			`Cannot render bigint ${value} — it exceeds Number.MAX_SAFE_INTEGER and cannot cross the template engine boundary without precision loss; format it to a string before rendering`,
 		);
 	}
 	if (typeof value === "number" && !Number.isFinite(value)) {
-		throw new ReamError(
+		throw new RoverError(
 			"MAIL_TEMPLATE_SYNTAX",
 			`Cannot render non-finite number ${value} — NaN and Infinity have no representation across the template engine boundary; format it to a string before rendering`,
 		);
@@ -91,7 +91,7 @@ function dataReplacer(_key: string, value: unknown): unknown {
 	return value;
 }
 
-/** Render a compiled IR, mapping native errors (syntax/recursion) to `ReamError`. */
+/** Render a compiled IR, mapping native errors (syntax/recursion) to `RoverError`. */
 function renderNative(
 	ir: NativeRoverIr,
 	data: Record<string, unknown>,
@@ -138,7 +138,7 @@ async function loadIr(viewPath: string): Promise<NativeRoverIr> {
 		const code = errnoCode(err);
 		// Only ENOENT maps to NOT_FOUND; permission/io errors surface distinctly.
 		if (code !== "ENOENT") {
-			throw new ReamError(
+			throw new RoverError(
 				"MAIL_TEMPLATE_READ_ERROR",
 				`Template read failed at ${resolved} (${code || "unknown"})`,
 				{
@@ -147,7 +147,7 @@ async function loadIr(viewPath: string): Promise<NativeRoverIr> {
 				},
 			);
 		}
-		throw new ReamError(
+		throw new RoverError(
 			"MAIL_TEMPLATE_NOT_FOUND",
 			`Template not found at ${resolved}`,
 			{
@@ -193,7 +193,7 @@ async function buildPartialMap(
 				// missing such partial did not error. Skip it here; if it IS reached
 				// at render time the Rust renderer raises MAIL_TEMPLATE_NOT_FOUND.
 				if (
-					err instanceof ReamError &&
+					err instanceof RoverError &&
 					err.code === "MAIL_TEMPLATE_NOT_FOUND"
 				) {
 					continue;
@@ -227,7 +227,7 @@ function resolveTemplatePath(viewPath: string): {
 	const candidate = path.resolve(withExt);
 	const rel = path.relative(rootAbs, candidate);
 	if (rel.startsWith("..") || path.isAbsolute(rel)) {
-		throw new ReamError(
+		throw new RoverError(
 			"MAIL_TEMPLATE_NOT_FOUND",
 			`Template path "${viewPath}" resolves outside of viewsRoot`,
 			{

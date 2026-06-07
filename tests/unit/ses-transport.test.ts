@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "../../src/RoverError.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
 import { SesTransport } from "../../src/transports/SesTransport.js";
@@ -151,10 +151,10 @@ describe("rover > SesTransport", () => {
 		});
 	});
 
-	it("throws ReamError on 5xx", async () => {
+	it("throws RoverError on 5xx", async () => {
 		fetchSpy.mockResolvedValue(new Response("boom", { status: 503 }));
 		const t = new SesTransport(config);
-		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(ReamError);
+		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(RoverError);
 	});
 
 	it("returns { providerId } from SES <MessageId> XML response", async () => {

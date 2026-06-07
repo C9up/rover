@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "../../src/RoverError.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	render,
@@ -130,8 +130,8 @@ describe("rover > SimpleTemplate", () => {
 			});
 		});
 
-		it("missing template error is a ReamError", async () => {
-			await expect(renderFile("nope", {})).rejects.toBeInstanceOf(ReamError);
+		it("missing template error is a RoverError", async () => {
+			await expect(renderFile("nope", {})).rejects.toBeInstanceOf(RoverError);
 		});
 
 		it("rejects absolute paths outside viewsRoot (path traversal guard)", async () => {

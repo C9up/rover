@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "../RoverError.js";
 import type { MailAttachment, MailMessage } from "../Mail.js";
 
 export const MAIL_JOB_NAME = "mail.send";
@@ -76,7 +76,7 @@ export class MailJobHandler implements BayJobHandlerLike {
  */
 function validatePayload(payload: unknown): MailJobPayload {
 	if (!payload || typeof payload !== "object") {
-		throw new ReamError(
+		throw new RoverError(
 			"MAIL_JOB_MALFORMED",
 			"Mail job payload is missing or not an object",
 			{ hint: "Queue driver returned a non-object — check serialisation." },
@@ -85,7 +85,7 @@ function validatePayload(payload: unknown): MailJobPayload {
 	const asObj = payload as Record<string, unknown>;
 	const message = asObj.message;
 	if (!message || typeof message !== "object") {
-		throw new ReamError(
+		throw new RoverError(
 			"MAIL_JOB_MALFORMED",
 			"Mail job payload.message is missing or not an object",
 			{
@@ -99,7 +99,7 @@ function validatePayload(payload: unknown): MailJobPayload {
 		!Array.isArray(m.to) ||
 		!Array.isArray(m.attachments)
 	) {
-		throw new ReamError(
+		throw new RoverError(
 			"MAIL_JOB_MALFORMED",
 			"Mail job payload.message does not match MailMessage shape",
 			{

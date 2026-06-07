@@ -1,4 +1,4 @@
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "../RoverError.js";
 
 /**
  * Wrap a `fetch()` rejection into the uniform `MAIL_PROVIDER_ERROR` shape
@@ -13,8 +13,8 @@ import { ReamError } from "@c9up/ream";
 export function wrapFetchNetworkError(
 	provider: string,
 	err: unknown,
-): ReamError {
-	if (err instanceof ReamError) return err;
+): RoverError {
+	if (err instanceof RoverError) return err;
 	const top = err as { code?: unknown; cause?: unknown; message?: unknown };
 	const cause = top.cause as { code?: unknown } | undefined;
 	const networkCode =
@@ -31,7 +31,7 @@ export function wrapFetchNetworkError(
 		providerMessage: message,
 	};
 	if (networkCode) ctx.networkCode = networkCode;
-	return new ReamError(
+	return new RoverError(
 		"MAIL_PROVIDER_ERROR",
 		`${provider} fetch failed${networkCode ? ` (${networkCode})` : ""}`,
 		{

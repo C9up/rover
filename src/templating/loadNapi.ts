@@ -4,13 +4,13 @@
 // `pnpm --filter @c9up/rover build:napi`.
 //
 // Per cerebrum 2026-04-15 there is NO JS fallback. If the binary fails to load,
-// consumers get a typed `ReamError`. Zero `as` / `any` per `feedback_no_any_types`
+// consumers get a typed `RoverError`. Zero `as` / `any` per `feedback_no_any_types`
 // — every boundary is narrowed with a `Reflect.get` type guard.
 
 import { createRequire } from "node:module";
 import { arch, platform } from "node:process";
 import { fileURLToPath } from "node:url";
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "../RoverError.js";
 
 const SUFFIX_MAP: Readonly<Record<string, string>> = {
 	"linux-x64": "linux-x64-gnu",
@@ -24,7 +24,7 @@ function platformSuffix(): string {
 	const key = `${platform}-${arch}`;
 	const suffix = SUFFIX_MAP[key];
 	if (typeof suffix !== "string") {
-		throw new ReamError(
+		throw new RoverError(
 			"MAIL_TEMPLATE_NAPI_REQUIRED",
 			`Unsupported platform/arch '${key}' for @c9up/rover native binary. Supported: ${Object.keys(SUFFIX_MAP).join(", ")}.`,
 			{
@@ -88,7 +88,7 @@ export function getNative(): NativeExports {
 		const muslHint = suffix.endsWith("-gnu")
 			? " If you are on Alpine/musl, note the prebuilt binaries target glibc (musl is not a supported target)."
 			: "";
-		throw new ReamError(
+		throw new RoverError(
 			"MAIL_TEMPLATE_NAPI_REQUIRED",
 			`@c9up/rover native binary 'index.${suffix}.node' not found or failed to load near ${here} — run 'pnpm --filter @c9up/rover build:napi' to build it.${muslHint} Cause: ${causeMessage}`,
 			{
@@ -97,7 +97,7 @@ export function getNative(): NativeExports {
 		);
 	}
 	if (!isNativeExports(loaded)) {
-		throw new ReamError(
+		throw new RoverError(
 			"MAIL_TEMPLATE_NAPI_REQUIRED",
 			"@c9up/rover native binary loaded but missing expected exports (engineVersion / compile / renderIr). Rebuild with 'pnpm --filter @c9up/rover build:napi'.",
 			{
@@ -137,13 +137,13 @@ const CODE_HINTS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Translate a thrown value from a native call into a `ReamError`.
- * Already a `ReamError` (e.g. the loader threw) → pass through. A `napi::Error`
+ * Translate a thrown value from a native call into a `RoverError`.
+ * Already a `RoverError` (e.g. the loader threw) → pass through. A `napi::Error`
  * carrying our `{code,message}` JSON envelope → reconstruct typed (line numbers
  * preserved in `message`). Anything else → wrap as a syntax error.
  */
-export function toReamError(err: unknown): ReamError {
-	if (err instanceof ReamError) return err;
+export function toReamError(err: unknown): RoverError {
+	if (err instanceof RoverError) return err;
 	if (err instanceof Error) {
 		let parsed: unknown;
 		try {
@@ -154,15 +154,15 @@ export function toReamError(err: unknown): ReamError {
 		if (isNapiErrorPayload(parsed)) {
 			const hint = CODE_HINTS[parsed.code];
 			if (hint !== undefined) {
-				return new ReamError(parsed.code, parsed.message, { hint });
+				return new RoverError(parsed.code, parsed.message, { hint });
 			}
 		}
-		return new ReamError(
+		return new RoverError(
 			"MAIL_TEMPLATE_SYNTAX",
 			`Native template call failed: ${err.message}`,
 		);
 	}
-	return new ReamError(
+	return new RoverError(
 		"MAIL_TEMPLATE_SYNTAX",
 		`Native template call failed with non-Error: ${String(err)}`,
 	);

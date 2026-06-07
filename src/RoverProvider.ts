@@ -1,7 +1,7 @@
 import type { EmitterLike, MailConfig } from "./Mail.js";
 import { Mail } from "./Mail.js";
 import type { BayQueueLike } from "./queue/MailJob.js";
-import { _setMail } from "./services/main.js";
+import { setMail } from "./services/main.js";
 
 /**
  * Duck-typed slice of the host's IoC container — rover does NOT import
@@ -52,7 +52,7 @@ export default class RoverProvider {
 		// Populate the `@c9up/rover/services/main` singleton with the
 		// container-resolved Mail instance so apps can
 		// `import mail from '@c9up/rover/services/main'` from anywhere.
-		_setMail(this.app.container.resolve<Mail>(Mail));
+		setMail(this.app.container.resolve<Mail>(Mail));
 	}
 
 	async shutdown() {}

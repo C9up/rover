@@ -1,4 +1,4 @@
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "../../src/RoverError.js";
 import { describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
 import { SmtpTransport } from "../../src/index.js";
@@ -139,11 +139,11 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 		).not.toThrow();
 	});
 
-	it("wraps errors as ReamError instances", async () => {
+	it("wraps errors as RoverError instances", async () => {
 		const transporter = makeFakeTransporter({
 			throwError: new Error("boom"),
 		});
 		const t = new SmtpTransport({ host: "m", _transporter: transporter });
-		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(ReamError);
+		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(RoverError);
 	});
 });

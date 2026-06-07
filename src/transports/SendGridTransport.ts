@@ -1,4 +1,4 @@
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "../RoverError.js";
 import sgMail, {
 	type MailDataRequired,
 	type MailService,
@@ -48,7 +48,7 @@ export class SendGridTransport implements MailTransport {
 		const apiKey =
 			typeof config.apiKey === "string" ? normalizeConfig(config.apiKey) : "";
 		if (!apiKey) {
-			throw new ReamError(
+			throw new RoverError(
 				"MAIL_PROVIDER_CONFIG",
 				"SendGrid transport requires apiKey",
 				{ hint: "Set { apiKey } in your mail config." },
@@ -143,7 +143,7 @@ function assertHasRecipients(message: MailMessage): void {
 		message.cc.length === 0 &&
 		message.bcc.length === 0
 	) {
-		throw new ReamError(
+		throw new RoverError(
 			"MAIL_PROVIDER_CONFIG",
 			"Mail message has no recipients",
 			{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
@@ -171,8 +171,8 @@ function buildSendGridContent(
 	return [first, ...rest];
 }
 
-function wrapSendGridError(err: unknown): ReamError {
-	if (err instanceof ReamError) return err;
+function wrapSendGridError(err: unknown): RoverError {
+	if (err instanceof RoverError) return err;
 	// @sendgrid/mail throws `{ code, message, response: { body, headers, statusCode } }`
 	const anyErr = err as {
 		code?: number | string;
@@ -210,7 +210,7 @@ function wrapSendGridError(err: unknown): ReamError {
 	}
 	const retryAfter = anyErr.response?.headers?.["retry-after"];
 	if (retryAfter) ctx.retryAfter = retryAfter;
-	return new ReamError(
+	return new RoverError(
 		"MAIL_PROVIDER_ERROR",
 		`SendGrid returned ${status || "unknown"}`,
 		{
@@ -234,7 +234,7 @@ function resolveMailServiceCtor(mod: unknown): new () => MailService {
 			return candidate as new () => MailService;
 		}
 	}
-	throw new ReamError(
+	throw new RoverError(
 		"MAIL_PROVIDER_CONFIG",
 		"@sendgrid/mail runtime does not expose `.MailService` — upgrade to v8+",
 		{

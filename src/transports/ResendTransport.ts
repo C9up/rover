@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "../RoverError.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
@@ -45,7 +45,7 @@ export class ResendTransport implements MailTransport {
 		const apiKey =
 			typeof config.apiKey === "string" ? normalizeConfig(config.apiKey) : "";
 		if (!apiKey) {
-			throw new ReamError(
+			throw new RoverError(
 				"MAIL_PROVIDER_CONFIG",
 				"Resend transport requires apiKey",
 				{ hint: "Set { apiKey } in your mail config." },
@@ -60,7 +60,7 @@ export class ResendTransport implements MailTransport {
 			message.cc.length === 0 &&
 			message.bcc.length === 0
 		) {
-			throw new ReamError(
+			throw new RoverError(
 				"MAIL_PROVIDER_CONFIG",
 				"Mail message has no recipients",
 				{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
@@ -122,7 +122,7 @@ export class ResendTransport implements MailTransport {
 				providerMessage,
 			};
 			if (retryAfter) ctx.retryAfter = retryAfter;
-			throw new ReamError(
+			throw new RoverError(
 				"MAIL_PROVIDER_ERROR",
 				`Resend returned ${res.status}`,
 				{

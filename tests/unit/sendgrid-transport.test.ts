@@ -1,4 +1,4 @@
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "../../src/RoverError.js";
 import { describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
 import { SendGridTransport } from "../../src/transports/SendGridTransport.js";
@@ -147,12 +147,12 @@ describe("rover > SendGridTransport (@sendgrid/mail)", () => {
 		});
 	});
 
-	it("wraps errors as ReamError instances", async () => {
+	it("wraps errors as RoverError instances", async () => {
 		const { client } = makeFakeClient({
 			throwError: Object.assign(new Error("boom"), { code: 500 }),
 		});
 		const t = new SendGridTransport({ apiKey: "k", _client: client });
-		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(ReamError);
+		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(RoverError);
 	});
 
 	it("throws config error when apiKey is missing", () => {

@@ -1,4 +1,4 @@
-import { ReamError } from "@c9up/ream";
+import { RoverError } from "../../src/RoverError.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	Mail,
@@ -22,8 +22,8 @@ class ScriptedTransport implements MailTransport {
 	}
 }
 
-const providerError = (status: number): ReamError =>
-	new ReamError("MAIL_PROVIDER_ERROR", `provider returned ${status}`, {
+const providerError = (status: number): RoverError =>
+	new RoverError("MAIL_PROVIDER_ERROR", `provider returned ${status}`, {
 		context: {
 			provider: "test",
 			upstreamStatus: String(status),
@@ -202,7 +202,7 @@ describe("rover > retry", () => {
 
 		await expect(
 			mail.send((m) => m.to("u@x.com").subject("S")),
-		).rejects.toBeInstanceOf(ReamError);
+		).rejects.toBeInstanceOf(RoverError);
 
 		expect(onFailed).toHaveBeenCalledOnce();
 		const [event] = onFailed.mock.calls[0];
@@ -297,7 +297,7 @@ describe("rover > retry", () => {
 					retry: { maxAttempts: 0, baseDelayMs: 0, factor: 1 },
 				}),
 		).not.toThrow(); // config stored — validation happens at dispatch
-		// Dispatch validates via resolveRetryConfig → throws ReamError
+		// Dispatch validates via resolveRetryConfig → throws RoverError
 		const mail = new Mail({
 			default: "log",
 			from: "default@example.com",
@@ -311,7 +311,7 @@ describe("rover > retry", () => {
 
 	it("retries on MAIL_PROVIDER_ERROR with networkCode ECONNRESET (no HTTP status)", async () => {
 		const { isRetryableError } = await import("../../src/retry.js");
-		const err = new ReamError("MAIL_PROVIDER_ERROR", "socket hang up", {
+		const err = new RoverError("MAIL_PROVIDER_ERROR", "socket hang up", {
 			context: {
 				provider: "smtp",
 				upstreamStatus: "0",
@@ -323,7 +323,7 @@ describe("rover > retry", () => {
 	});
 
 	it("honours provider Retry-After header in backoff delay", async () => {
-		const errWithRetryAfter = new ReamError(
+		const errWithRetryAfter = new RoverError(
 			"MAIL_PROVIDER_ERROR",
 			"provider throttled",
 			{
@@ -407,11 +407,11 @@ describe("rover > retry", () => {
 			retry: { maxAttempts: 2, baseDelayMs: 5, factor: 1 },
 		});
 
-		let caught: ReamError | undefined;
+		let caught: RoverError | undefined;
 		try {
 			await mail.send((m) => m.to("u@x.com").subject("S"));
 		} catch (err) {
-			caught = err as ReamError;
+			caught = err as RoverError;
 		}
 		expect(caught).toBeDefined();
 		expect(caught?.context.attempts).toBe("2");
