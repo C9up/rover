@@ -1,6 +1,5 @@
 import { Buffer } from "node:buffer";
 import { createHash, createHmac, randomBytes } from "node:crypto";
-import { RoverError } from "../RoverError.js";
 import {
 	type MailAttachment,
 	type MailMessage,
@@ -8,6 +7,7 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
+import { RoverError } from "../RoverError.js";
 import { wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
@@ -129,10 +129,14 @@ export class SesTransport implements MailTransport {
 				providerMessage,
 			};
 			if (retryAfter) ctx.retryAfter = retryAfter;
-			throw new RoverError("MAIL_PROVIDER_ERROR", `SES returned ${res.status}`, {
-				hint: "Inspect `context.upstreamStatus` to decide retry eligibility. `context.retryAfter` (when set) carries the provider's backoff hint in seconds.",
-				context: ctx,
-			});
+			throw new RoverError(
+				"MAIL_PROVIDER_ERROR",
+				`SES returned ${res.status}`,
+				{
+					hint: "Inspect `context.upstreamStatus` to decide retry eligibility. `context.retryAfter` (when set) carries the provider's backoff hint in seconds.",
+					context: ctx,
+				},
+			);
 		}
 		// SES XML success shape: <SendEmailResponse><SendEmailResult><MessageId>...
 		// or <SendRawEmailResult><MessageId>... — extract via a scoped regex.
@@ -235,7 +239,21 @@ function buildRawEmailForm(message: MailMessage): string {
 	const urlEncoded = b64.replace(/[+/=]/g, (c) =>
 		c === "+" ? "%2B" : c === "/" ? "%2F" : "%3D",
 	);
-	return `Action=SendRawEmail&RawMessage.Data=${urlEncoded}`;
+	const parts = ["Action=SendRawEmail", `RawMessage.Data=${urlEncoded}`];
+	// SendRawEmail only delivers to addresses in the MIME headers UNLESS
+	// Destinations is supplied. Bcc is deliberately kept out of the MIME (it must
+	// stay hidden), so when there are bcc recipients we MUST enumerate every
+	// recipient (to + cc + bcc) as Destinations — otherwise bcc is silently
+	// dropped. No bcc → leave delivery to header parsing (unchanged).
+	if (message.bcc.length > 0) {
+		const recipients = [...message.to, ...message.cc, ...message.bcc];
+		recipients.forEach((addr, i) => {
+			parts.push(
+				`Destinations.member.${i + 1}=${encodeURIComponent(stripCrlf(addr))}`,
+			);
+		});
+	}
+	return parts.join("&");
 }
 
 function buildRawMime(message: MailMessage): string {

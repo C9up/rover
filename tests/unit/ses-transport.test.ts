@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
-import { RoverError } from "../../src/RoverError.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
+import { RoverError } from "../../src/RoverError.js";
 import { SesTransport } from "../../src/transports/SesTransport.js";
 
 const baseMessage = (): MailMessage => ({
@@ -101,6 +101,36 @@ describe("rover > SesTransport", () => {
 		expect(mime).toContain('filename="invoice.pdf"');
 		// Attachment body is base64 `PDFBYTES` = `UERGQllURVM=`
 		expect(mime).toContain(Buffer.from("PDFBYTES").toString("base64"));
+	});
+
+	// Audit 2026-06-13: the SendRawEmail path emitted no Destinations and kept bcc
+	// out of the MIME → bcc recipients were silently dropped. They must be
+	// delivered via Destinations while staying hidden from the MIME headers.
+	it("SendRawEmail path delivers bcc via Destinations and keeps it out of the MIME", async () => {
+		const t = new SesTransport(config);
+		const msg = baseMessage();
+		msg.cc = ["cc@example.com"];
+		msg.bcc = ["secret@example.com"];
+		msg.attachments = [
+			{ filename: "x.pdf", content: "X", contentType: "application/pdf" },
+		];
+		await t.send(msg);
+
+		const [, init] = fetchSpy.mock.calls[0];
+		const form = parseForm(String(init?.body));
+		expect(form.Action).toEqual(["SendRawEmail"]);
+		const destinations = Object.entries(form)
+			.filter(([k]) => k.startsWith("Destinations.member."))
+			.flatMap(([, v]) => v);
+		expect(destinations).toContain("user@example.com");
+		expect(destinations).toContain("cc@example.com");
+		expect(destinations).toContain("secret@example.com");
+		// Bcc must never appear in the MIME (it stays hidden from other recipients).
+		const mime = Buffer.from(
+			form["RawMessage.Data"]?.[0] ?? "",
+			"base64",
+		).toString("utf8");
+		expect(mime).not.toContain("secret@example.com");
 	});
 
 	it("adds SigV4 Authorization header scoped to ses/<region>", async () => {
