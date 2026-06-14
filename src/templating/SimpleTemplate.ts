@@ -36,7 +36,7 @@ export async function render(
 	data: Record<string, unknown>,
 ): Promise<string> {
 	const ir = compileSource(source);
-	const partials = await buildPartialMap(ir);
+	const partials = await buildPartialMap(ir, viewsRoot);
 	return renderNative(ir, data, partials);
 }
 
@@ -44,9 +44,15 @@ export async function renderFile(
 	viewPath: string,
 	data: Record<string, unknown>,
 	_visited: Set<string> = new Set(),
+	// Per-call viewsRoot so a `Mail` instance resolves templates under its OWN
+	// configured root instead of the process-wide `setViewsRoot` mutable global
+	// (which is last-constructor-wins across instances). Falls back to the
+	// global when omitted, preserving the standalone render() / setViewsRoot API.
+	viewsRootOverride?: string,
 ): Promise<string> {
-	const ir = await loadIr(viewPath);
-	const partials = await buildPartialMap(ir);
+	const root = viewsRootOverride ?? viewsRoot;
+	const ir = await loadIr(viewPath, root);
+	const partials = await buildPartialMap(ir, root);
 	return renderNative(ir, data, partials);
 }
 
@@ -126,8 +132,8 @@ function errnoCode(err: unknown): string {
  * resolved absolute path. Owns the `MAIL_TEMPLATE_NOT_FOUND` / `_READ_ERROR`
  * raising (unchanged from the pre-migration engine).
  */
-async function loadIr(viewPath: string): Promise<NativeRoverIr> {
-	const { resolved, tried } = resolveTemplatePath(viewPath);
+async function loadIr(viewPath: string, root: string): Promise<NativeRoverIr> {
+	const { resolved, tried } = resolveTemplatePath(viewPath, root);
 	const cached = cache.get(resolved);
 	if (cached !== undefined) return cached;
 
@@ -143,7 +149,7 @@ async function loadIr(viewPath: string): Promise<NativeRoverIr> {
 				`Template read failed at ${resolved} (${code || "unknown"})`,
 				{
 					hint: "Check filesystem permissions and file descriptor limits.",
-					context: { path: resolved, code, viewsRoot },
+					context: { path: resolved, code, viewsRoot: root },
 				},
 			);
 		}
@@ -155,7 +161,7 @@ async function loadIr(viewPath: string): Promise<NativeRoverIr> {
 				context: {
 					path: resolved,
 					paths: tried.join(", "),
-					viewsRoot,
+					viewsRoot: root,
 				},
 			},
 		);
@@ -176,6 +182,7 @@ async function loadIr(viewPath: string): Promise<NativeRoverIr> {
  */
 async function buildPartialMap(
 	rootIr: NativeRoverIr,
+	root: string,
 ): Promise<Record<string, NativeRoverIr>> {
 	const map: Record<string, NativeRoverIr> = {};
 	const stack: NativeRoverIr[] = [rootIr];
@@ -186,7 +193,7 @@ async function buildPartialMap(
 			if (Object.hasOwn(map, name)) continue;
 			let partialIr: NativeRoverIr;
 			try {
-				partialIr = await loadIr(`partials/${name}`);
+				partialIr = await loadIr(`partials/${name}`, root);
 			} catch (err) {
 				// A partial referenced only inside a falsy `{{#if}}` is never
 				// rendered. The pre-migration engine loaded partials lazily, so a
@@ -212,11 +219,14 @@ async function buildPartialMap(
  * the root (absolute path outside, or `../` traversal after normalisation).
  * Returns the resolved absolute path plus the set of candidates tried.
  */
-function resolveTemplatePath(viewPath: string): {
+function resolveTemplatePath(
+	viewPath: string,
+	root: string,
+): {
 	resolved: string;
 	tried: string[];
 } {
-	const rootAbs = path.resolve(viewsRoot);
+	const rootAbs = path.resolve(root);
 	const startingPoint = path.isAbsolute(viewPath)
 		? viewPath
 		: path.resolve(rootAbs, viewPath);

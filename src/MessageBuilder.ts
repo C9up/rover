@@ -88,11 +88,19 @@ export class MessageBuilder {
 		return this;
 	}
 
-	async build(): Promise<MailMessage> {
+	/**
+	 * Finalise the message. `viewsRoot`, when provided by the owning `Mail`,
+	 * scopes template resolution to that instance's configured root instead of
+	 * the process-wide mutable global — so two `Mail`s with different roots no
+	 * longer clobber each other.
+	 */
+	async build(viewsRoot?: string): Promise<MailMessage> {
 		if (this.#pendingView !== null) {
 			this.#msg.html = await renderTemplateFile(
 				this.#pendingView.path,
 				this.#pendingView.data,
+				undefined,
+				viewsRoot,
 			);
 			this.#pendingView = null;
 		}

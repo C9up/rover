@@ -1,5 +1,4 @@
 import { randomBytes } from "node:crypto";
-import { RoverError } from "./RoverError.js";
 import nodemailer, { type Transporter } from "nodemailer";
 import { BaseMail } from "./BaseMail.js";
 import {
@@ -12,6 +11,7 @@ import {
 	MAIL_JOB_NAME,
 	MailJobHandler,
 } from "./queue/MailJob.js";
+import { RoverError } from "./RoverError.js";
 import {
 	computeBackoffMs,
 	isRetryableError,
@@ -308,6 +308,8 @@ export class Mail {
 	#transportRetry: Map<string, RetryConfig> = new Map();
 	#hooks: MailHooks;
 	#emitter: EmitterLike | null;
+	/** Per-instance template root, threaded into each render so concurrent Mails with different roots don't clobber the shared global. */
+	#viewsRoot: string | undefined;
 
 	constructor(
 		config: MailConfig,
@@ -326,6 +328,10 @@ export class Mail {
 		this.#globalRetry = config.retry;
 		this.#hooks = options?.hooks ?? {};
 		this.#emitter = options?.emitter ?? null;
+		this.#viewsRoot = config.viewsRoot;
+		// Keep mutating the process-wide global too: standalone MessageBuilder
+		// usage (not routed through this Mail) still reads it. The per-instance
+		// #viewsRoot threaded into #buildMessage is what isolates Mail.send().
 		if (config.viewsRoot !== undefined) {
 			setViewsRoot(config.viewsRoot);
 		}
@@ -542,13 +548,13 @@ export class Mail {
 	): Promise<MailMessage> {
 		let result: MailMessage;
 		if (arg instanceof BaseMail) {
-			const built = await arg.build();
+			const built = await arg.build(this.#viewsRoot);
 			result = built.from ? built : { ...built, from: this.#defaultFrom };
 		} else {
 			const builder = new MessageBuilder();
 			builder.from(this.#defaultFrom);
 			arg(builder);
-			result = await builder.build();
+			result = await builder.build(this.#viewsRoot);
 		}
 		validateMailMessage(result);
 		return result;

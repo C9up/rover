@@ -32,7 +32,7 @@ export abstract class BaseMail {
 
 	abstract prepare(): void | Promise<void>;
 
-	async build(): Promise<MailMessage> {
+	async build(viewsRoot?: string): Promise<MailMessage> {
 		if (this.from !== undefined) {
 			this.message.from(formatAddress(this.from));
 		}
@@ -40,7 +40,9 @@ export abstract class BaseMail {
 			this.message.subject(this.subject);
 		}
 		await this.prepare();
-		return this.message.build();
+		// Forward the owning Mail's per-instance viewsRoot so template
+		// resolution doesn't depend on the process-wide mutable global.
+		return this.message.build(viewsRoot);
 	}
 }
 
