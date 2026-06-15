@@ -1,6 +1,6 @@
 {
   "name": "@c9up/rover",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Mail transport for Ream — SMTP, log, and pluggable transports",
   "type": "module",
   "main": "./src/index.ts",
