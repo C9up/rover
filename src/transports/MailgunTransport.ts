@@ -1,4 +1,3 @@
-import { RoverError } from "../RoverError.js";
 import formData from "form-data";
 // mailgun.js is UMD-bundled; the class lives on `.default` under NodeNext.
 import MailgunModule from "mailgun.js";
@@ -8,6 +7,7 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
+import { RoverError } from "../RoverError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
 const normalizeConfig = (v: string): string => stripCrlf(v).trim();
@@ -115,7 +115,11 @@ export class MailgunTransport implements MailTransport {
 		// "never skip CRLF sanitisation because the provider will handle it".
 		const data: Record<string, unknown> = {
 			from: stripCrlf(message.from),
-			to: message.to.map(stripCrlf),
+			// Mailgun requires a `to`. A bcc-only message is valid (the validator
+			// permits it), but an empty `to` makes create() 400 instead of
+			// delivering to the bcc list. Fall back to the sender so the envelope is
+			// accepted and the bcc recipients still receive it (audit 2026-06-13).
+			to: (message.to.length > 0 ? message.to : [message.from]).map(stripCrlf),
 			subject: stripCrlf(message.subject),
 		};
 		if (message.cc.length) data.cc = message.cc.map(stripCrlf);

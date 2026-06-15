@@ -1,6 +1,6 @@
-import { RoverError } from "../../src/RoverError.js";
 import { describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
+import { RoverError } from "../../src/RoverError.js";
 import { MailgunTransport } from "../../src/transports/MailgunTransport.js";
 
 const baseMessage = (): MailMessage => ({
@@ -61,6 +61,22 @@ describe("rover > MailgunTransport (mailgun.js)", () => {
 		expect(calls[0].data.html).toBe("<p>Hi</p>");
 		expect(calls[0].data.text).toBe("Hi");
 		expect(result).toEqual({ providerId: "<mg-1@mailgun.org>" });
+	});
+
+	it("bcc-only message falls back to the sender for `to` (Mailgun requires it)", async () => {
+		const { client, calls } = makeFakeClient({ id: "<mg-bcc@mailgun.org>" });
+		const t = new MailgunTransport({
+			apiKey: "k",
+			domain: "mg.acme.com",
+			_client: client,
+		});
+		const msg = baseMessage();
+		msg.to = [];
+		msg.bcc = ["hidden@x.com"];
+		await t.send(msg);
+		// An empty `to` made create() 400 before the fix (audit 2026-06-13).
+		expect(calls[0].data.to).toEqual(["sender@example.com"]);
+		expect(calls[0].data.bcc).toEqual(["hidden@x.com"]);
 	});
 
 	it("forwards cc, bcc, replyTo, custom headers, attachments", async () => {
