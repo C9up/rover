@@ -1,4 +1,3 @@
-import { RoverError } from "../RoverError.js";
 import sgMail, {
 	type MailDataRequired,
 	type MailService,
@@ -9,6 +8,7 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
+import { RoverError } from "../RoverError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
 const normalizeConfig = (v: string): string => stripCrlf(v).trim();
@@ -92,7 +92,7 @@ export class SendGridTransport implements MailTransport {
 						headers: Object.fromEntries(
 							Object.entries(message.headers).map(([k, v]) => [
 								stripCrlf(k),
-								stripCrlf(v),
+								Array.isArray(v) ? v.map(stripCrlf).join(", ") : stripCrlf(v),
 							]),
 						),
 					}

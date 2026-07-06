@@ -1,11 +1,11 @@
 import { Buffer } from "node:buffer";
-import { RoverError } from "../RoverError.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
+import { RoverError } from "../RoverError.js";
 import { wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
@@ -92,7 +92,9 @@ export class ResendTransport implements MailTransport {
 		if (customHeaders.length > 0) {
 			body.headers = {};
 			for (const [k, v] of customHeaders) {
-				body.headers[stripCrlf(k)] = stripCrlf(v);
+				body.headers[stripCrlf(k)] = Array.isArray(v)
+					? v.map(stripCrlf).join(", ")
+					: stripCrlf(v);
 			}
 		}
 

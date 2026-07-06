@@ -11,6 +11,7 @@ import {
 	MAIL_JOB_NAME,
 	MailJobHandler,
 } from "./queue/MailJob.js";
+import { MemoryMailMessenger } from "./queue/MemoryMailMessenger.js";
 import { RoverError } from "./RoverError.js";
 import {
 	computeBackoffMs,
@@ -68,12 +69,39 @@ export interface EmitterLike {
 	emit(event: string, data: unknown): void;
 }
 
+/**
+ * Emitted (`mail:sending`) right before the transport `send` runs — no
+ * `messageId` yet, since the provider hasn't accepted the message.
+ */
+export interface MailSendingEvent {
+	to: string[];
+	cc: string[];
+	bcc: string[];
+	transportName: string;
+	timestamp: number;
+}
+
 export interface MailSentEvent {
 	messageId: string;
 	to: string[];
 	cc: string[];
 	bcc: string[];
 	transportName: string;
+	timestamp: number;
+}
+
+/**
+ * Emitted for the queue lifecycle (`mail:queueing` / `mail:queued`). `jobId` is
+ * only present on `mail:queued` (once the job has been accepted by the queue /
+ * in-memory messenger).
+ */
+export interface MailQueueEvent {
+	to: string[];
+	cc: string[];
+	bcc: string[];
+	transportName: string;
+	queue: string;
+	jobId?: string;
 	timestamp: number;
 }
 
@@ -110,12 +138,16 @@ export interface MailConfig {
 
 /**
  * Event hooks invoked by the internal dispatch loop. Default implementations
- * are no-ops; when an event-bus `EmitterLike` is wired, the hooks emit
- * `mail.sent` / `mail.failed`. Tests inject spies.
+ * are no-ops; when an event-bus `EmitterLike` is wired, the hooks emit the
+ * `mail:*` events (colon-namespaced, `@adonisjs/mail` parity). Tests inject
+ * spies.
  */
 export interface MailHooks {
+	onSending?(event: MailSendingEvent): void;
 	onSent?(event: MailSentEvent): void;
 	onFailed?(event: MailFailedEvent): void;
+	onQueueing?(event: MailQueueEvent): void;
+	onQueued?(event: MailQueueEvent): void;
 }
 
 /**
@@ -204,6 +236,10 @@ export class SmtpTransport implements MailTransport {
 				subject: message.subject,
 				html: message.html,
 				text: message.text,
+				priority: message.priority,
+				messageId: message.messageId,
+				inReplyTo: message.inReplyTo,
+				references: message.references,
 				headers: Object.keys(message.headers).length
 					? message.headers
 					: undefined,
@@ -212,6 +248,7 @@ export class SmtpTransport implements MailTransport {
 							filename: att.filename,
 							content: att.content,
 							contentType: att.contentType,
+							cid: att.cid,
 						}))
 					: undefined,
 			});
@@ -297,11 +334,14 @@ export function registerTransport(
  */
 export class Mail {
 	#transports: Map<string, MailTransport> = new Map();
+	#mailers: Map<string, Mailer> = new Map();
 	#defaultTransport: string;
 	#defaultFrom: string;
-	#fakeSnapshot: { transportName: string; original: MailTransport } | null =
-		null;
+	/** Active `FakeMail`, when `fake()` mode is on. Manager-level (captures both `send` and `sendLater`), not a transport swap. */
+	#fake: FakeMail | null = null;
 	#queue: BayQueueLike | null = null;
+	/** Default in-memory messenger for `sendLater()` when no Bay queue is wired (Adonis MemoryQueueMessenger parity). */
+	#memoryMessenger: MemoryMailMessenger;
 	#queueName: string;
 	#queueMaxAttempts: number;
 	#globalRetry: RetryConfig | undefined;
@@ -328,6 +368,7 @@ export class Mail {
 		this.#globalRetry = config.retry;
 		this.#hooks = options?.hooks ?? {};
 		this.#emitter = options?.emitter ?? null;
+		this.#memoryMessenger = new MemoryMailMessenger(this, this.#emitter);
 		this.#viewsRoot = config.viewsRoot;
 		// Keep mutating the process-wide global too: standalone MessageBuilder
 		// usage (not routed through this Mail) still reads it. The per-instance
@@ -371,6 +412,23 @@ export class Mail {
 		transport?: string,
 	): Promise<void> {
 		const transportName = transport ?? this.#defaultTransport;
+		// Fake mode is manager-level: capture the built message (and the source
+		// BaseMail, for constructor-based assertions) instead of touching a
+		// transport. Still fire the send lifecycle so event wiring stays testable.
+		if (this.#fake !== null) {
+			const message = await this.#buildMessage(arg);
+			this.#fake.trackSent(message, arg instanceof BaseMail ? arg : undefined);
+			const base = {
+				to: message.to.slice(),
+				cc: message.cc.slice(),
+				bcc: message.bcc.slice(),
+				transportName,
+				timestamp: Date.now(),
+			};
+			this.#fireSending(base);
+			this.#fireSent({ ...base, messageId: randomBytes(16).toString("hex") });
+			return;
+		}
 		// Validate transport up-front before running any callback / prepare() side effects.
 		if (!this.#transports.has(transportName)) {
 			throw new Error(`Mail transport '${transportName}' not configured`);
@@ -381,30 +439,50 @@ export class Mail {
 	}
 
 	/**
-	 * Enqueue a send onto the Bay queue. Returns the job id. Throws
-	 * `MAIL_QUEUE_REQUIRED` if no `QueueManager` was wired through the
-	 * constructor options.
+	 * Enqueue a send. Returns the job id. When a `@c9up/bay` `QueueManager` was
+	 * wired it enqueues there; otherwise it falls back to the default in-memory
+	 * messenger (immediate microtask dispatch), matching `@adonisjs/mail`'s
+	 * `MemoryQueueMessenger` — `sendLater()` never throws for a missing queue.
 	 */
 	async sendLater(
 		arg: ((message: MessageBuilder) => void) | BaseMail,
 		options?: { transport?: string; queue?: string },
 	): Promise<string> {
-		if (this.#queue === null) {
-			throw new RoverError(
-				"MAIL_QUEUE_REQUIRED",
-				"mail.sendLater() requires @c9up/bay QueueManager",
-				{
-					hint: "Register @c9up/bay and pass the QueueManager to Mail via RoverProvider, or use mail.send() for synchronous delivery.",
-				},
-			);
-		}
 		const message = await this.#buildMessage(arg);
 		const queueName = options?.queue ?? this.#queueName;
-		return this.#queue.dispatch(
-			queueName,
-			{ message, transport: options?.transport },
-			{ maxAttempts: this.#queueMaxAttempts },
-		);
+		const transportName = options?.transport ?? this.#defaultTransport;
+		const base: MailQueueEvent = {
+			to: message.to.slice(),
+			cc: message.cc.slice(),
+			bcc: message.bcc.slice(),
+			transportName,
+			queue: queueName,
+			timestamp: Date.now(),
+		};
+
+		// Fake mode: capture into the queued bucket, don't dispatch.
+		if (this.#fake !== null) {
+			this.#fake.trackQueued(
+				message,
+				arg instanceof BaseMail ? arg : undefined,
+			);
+			const jobId = `fake_${randomBytes(12).toString("hex")}`;
+			this.#fireQueueing(base);
+			this.#fireQueued({ ...base, jobId });
+			return jobId;
+		}
+
+		this.#fireQueueing(base);
+		const jobId =
+			this.#queue !== null
+				? await this.#queue.dispatch(
+						queueName,
+						{ message, transport: options?.transport },
+						{ maxAttempts: this.#queueMaxAttempts },
+					)
+				: this.#memoryMessenger.queue(message, options?.transport);
+		this.#fireQueued({ ...base, jobId });
+		return jobId;
 	}
 
 	/**
@@ -436,6 +514,16 @@ export class Mail {
 
 		const generatedId = randomBytes(16).toString("hex");
 		let lastError: unknown;
+
+		// Fire once before the first attempt — `mail:sending` signals intent, not
+		// per-retry, matching @adonisjs/mail.
+		this.#fireSending({
+			to: message.to.slice(),
+			cc: message.cc.slice(),
+			bcc: message.bcc.slice(),
+			transportName: name,
+			timestamp: Date.now(),
+		});
 
 		for (let attempt = 1; attempt <= retry.maxAttempts; attempt += 1) {
 			let sendResult: MailSendOutcome;
@@ -507,36 +595,46 @@ export class Mail {
 		return clone;
 	}
 
+	#fireSending(event: MailSendingEvent): void {
+		this.#fire("mail:sending", event, this.#hooks.onSending);
+	}
+
 	#fireSent(event: MailSentEvent): void {
-		// Hooks are in user-land and may throw; their failure must not poison
-		// delivery outcome. Emitter errors are already defensively swallowed.
-		try {
-			this.#hooks.onSent?.(event);
-		} catch (err) {
-			process.stderr.write(
-				`[rover] onSent hook threw: ${err instanceof Error ? err.message : String(err)}\n`,
-			);
-		}
-		if (this.#emitter) {
-			try {
-				this.#emitter.emit("mail.sent", event);
-			} catch {
-				// Event bus failure ≠ mail delivery failure — swallow.
-			}
-		}
+		this.#fire("mail:sent", event, this.#hooks.onSent);
 	}
 
 	#fireFailed(event: MailFailedEvent): void {
+		this.#fire("mail:failed", event, this.#hooks.onFailed);
+	}
+
+	#fireQueueing(event: MailQueueEvent): void {
+		this.#fire("mail:queueing", event, this.#hooks.onQueueing);
+	}
+
+	#fireQueued(event: MailQueueEvent): void {
+		this.#fire("mail:queued", event, this.#hooks.onQueued);
+	}
+
+	/**
+	 * Fan a lifecycle event out to the (optional, user-land, may-throw) hook and
+	 * the (optional) event bus. Hook and bus failures are isolated: neither can
+	 * poison the delivery outcome.
+	 */
+	#fire<T>(
+		name: string,
+		event: T,
+		hook: ((event: T) => void) | undefined,
+	): void {
 		try {
-			this.#hooks.onFailed?.(event);
+			hook?.(event);
 		} catch (err) {
 			process.stderr.write(
-				`[rover] onFailed hook threw: ${err instanceof Error ? err.message : String(err)}\n`,
+				`[rover] ${name} hook threw: ${err instanceof Error ? err.message : String(err)}\n`,
 			);
 		}
 		if (this.#emitter) {
 			try {
-				this.#emitter.emit("mail.failed", event);
+				this.#emitter.emit(name, event);
 			} catch {
 				// Event bus failure ≠ mail delivery failure — swallow.
 			}
@@ -560,41 +658,86 @@ export class Mail {
 		return result;
 	}
 
-	/** Get a specific transport. */
-	use(name: string): MailTransport {
+	/**
+	 * Get a `Mailer` bound to a named transport, so `mail.use('mailgun').send(cb)`
+	 * routes through that transport (Adonis parity). Mailers are cached per name.
+	 */
+	use(name: string): Mailer {
+		if (!this.#transports.has(name)) {
+			throw new Error(`Mail transport '${name}' not configured`);
+		}
+		let mailer = this.#mailers.get(name);
+		if (mailer === undefined) {
+			mailer = new Mailer(this, name);
+			this.#mailers.set(name, mailer);
+		}
+		return mailer;
+	}
+
+	/** @internal Resolve the raw transport instance behind a mailer name. */
+	transportFor(name: string): MailTransport {
 		const t = this.#transports.get(name);
 		if (!t) throw new Error(`Mail transport '${name}' not configured`);
 		return t;
 	}
 
 	/**
-	 * Swap the default transport with a `FakeMail` that captures every send.
-	 * Call `restore()` to re-install the original. Throws if a fake is already
-	 * active — nested fakes always indicate a forgotten `restore()`.
+	 * Enter fake mode. Every subsequent `send()` / `sendLater()` — including via
+	 * `use(name)` — is captured by the returned `FakeMail` instead of hitting a
+	 * transport or the queue. Call `restore()` to exit. Throws if already faking
+	 * — nested fakes always indicate a forgotten `restore()`.
 	 */
 	fake(): FakeMail {
-		if (this.#fakeSnapshot !== null) {
+		if (this.#fake !== null) {
 			throw new Error("Mail.fake() already active — call restore() first");
 		}
-		const transportName = this.#defaultTransport;
-		const original = this.#transports.get(transportName);
-		if (!original) {
-			throw new Error(
-				`Cannot fake default transport '${transportName}' — not configured`,
-			);
-		}
-		const fake = new FakeMail();
-		this.#fakeSnapshot = { transportName, original };
-		this.#transports.set(transportName, fake);
-		return fake;
+		this.#fake = new FakeMail();
+		return this.#fake;
 	}
 
-	/** Undo the swap installed by `fake()`. No-op if no fake is active. */
+	/** Exit fake mode. No-op if not currently faking. */
 	restore(): void {
-		if (this.#fakeSnapshot === null) return;
-		const { transportName, original } = this.#fakeSnapshot;
-		this.#transports.set(transportName, original);
-		this.#fakeSnapshot = null;
+		this.#fake = null;
+	}
+}
+
+/**
+ * A `Mailer` binds a named transport to the `send` / `sendLater` API so
+ * `mail.use('mailgun').send(cb)` routes through that transport (Adonis parity).
+ * It delegates back to the owning `Mail`, so fake mode and lifecycle events are
+ * honoured uniformly.
+ */
+export class Mailer {
+	#mail: Mail;
+	#name: string;
+
+	constructor(mail: Mail, name: string) {
+		this.#mail = mail;
+		this.#name = name;
+	}
+
+	/** The transport name this mailer is bound to. */
+	get name(): string {
+		return this.#name;
+	}
+
+	/** The underlying transport instance. */
+	get transport(): MailTransport {
+		return this.#mail.transportFor(this.#name);
+	}
+
+	send(arg: ((message: MessageBuilder) => void) | BaseMail): Promise<void> {
+		// Narrow so the overloaded `Mail.send` resolves without a union cast.
+		return arg instanceof BaseMail
+			? this.#mail.send(arg, this.#name)
+			: this.#mail.send(arg, this.#name);
+	}
+
+	sendLater(
+		arg: ((message: MessageBuilder) => void) | BaseMail,
+		options?: { queue?: string },
+	): Promise<string> {
+		return this.#mail.sendLater(arg, { ...options, transport: this.#name });
 	}
 }
 

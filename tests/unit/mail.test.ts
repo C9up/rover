@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LogTransport, Mail, MessageBuilder } from "../../src/index.js";
+import { Mail, Mailer, MessageBuilder } from "../../src/index.js";
 
 describe("rover > Mail", () => {
 	it("creates a mail instance with log transport", () => {
@@ -60,14 +60,17 @@ describe("rover > Mail", () => {
 		expect(msg.headers["X-Custom"]).toBe("val");
 	});
 
-	it("use() returns a specific transport", () => {
+	it("use() returns a Mailer bound to the named transport", () => {
 		const mail = new Mail({
 			default: "log",
 			from: "test@example.com",
 			transports: { log: { transport: "log" } },
 		});
-		const transport = mail.use("log");
-		expect(transport).toBeInstanceOf(LogTransport);
+		// AdonisJS parity: use(name) returns a Mailer (send/sendLater), not the
+		// raw transport, so `mail.use('log').send(cb)` works.
+		const mailer = mail.use("log");
+		expect(mailer).toBeInstanceOf(Mailer);
+		expect(typeof mailer.send).toBe("function");
 	});
 
 	it("use() throws on unknown transport name", () => {

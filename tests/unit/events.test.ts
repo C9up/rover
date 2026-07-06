@@ -1,4 +1,3 @@
-import { RoverError } from "../../src/RoverError.js";
 import { describe, expect, it } from "vitest";
 import {
 	type EmitterLike,
@@ -8,6 +7,7 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../../src/index.js";
+import { RoverError } from "../../src/RoverError.js";
 
 class PassTransport implements MailTransport {
 	async send(_m: MailMessage): Promise<void> {}
@@ -74,9 +74,11 @@ describe("rover > delivery events", () => {
 
 		await mail.send((m) => m.to("u@x.com").subject("Hi"));
 
-		expect(emitter.events).toHaveLength(1);
-		expect(emitter.events[0].name).toBe("mail.sent");
-		const data = emitter.events[0].data as {
+		// mail:sending fires before mail:sent (AdonisJS event contract).
+		expect(emitter.events[0].name).toBe("mail:sending");
+		const sent = emitter.events.filter((e) => e.name === "mail:sent");
+		expect(sent).toHaveLength(1);
+		const data = sent[0].data as {
 			messageId: string;
 			to: string[];
 			transportName: string;
@@ -99,7 +101,8 @@ describe("rover > delivery events", () => {
 
 		await mail.send((m) => m.to("u@x.com").subject("Hi"));
 
-		const data = emitter.events[0].data as { messageId: string };
+		const sent = emitter.events.find((e) => e.name === "mail:sent");
+		const data = sent?.data as { messageId: string };
 		expect(data.messageId).toBe("mg-abc");
 	});
 
@@ -119,8 +122,8 @@ describe("rover > delivery events", () => {
 		);
 		await mail.send((m) => m.to("u@x.com").subject("Hi"));
 
-		const failed = emitter.events.filter((e) => e.name === "mail.failed");
-		const sent = emitter.events.filter((e) => e.name === "mail.sent");
+		const failed = emitter.events.filter((e) => e.name === "mail:failed");
+		const sent = emitter.events.filter((e) => e.name === "mail:sent");
 		expect(failed).toHaveLength(0);
 		expect(sent).toHaveLength(1);
 	});
@@ -146,7 +149,7 @@ describe("rover > delivery events", () => {
 			mail.send((m) => m.to("u@x.com").subject("Hi")),
 		).rejects.toBeInstanceOf(RoverError);
 
-		const failed = emitter.events.find((e) => e.name === "mail.failed");
+		const failed = emitter.events.find((e) => e.name === "mail:failed");
 		expect(failed).toBeDefined();
 		const data = failed?.data as {
 			error: { code: string; upstreamStatus?: number; attempts: number };

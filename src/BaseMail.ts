@@ -1,6 +1,6 @@
 import { type MailMessage, MessageBuilder } from "./MessageBuilder.js";
 
-export type MailAddress = string | { address: string; name: string };
+export type MailAddress = string | { address: string; name?: string };
 
 /**
  * Abstract base for class-based mail messages (Adonis parity).
@@ -20,6 +20,7 @@ export abstract class BaseMail {
 	protected readonly message: MessageBuilder = new MessageBuilder();
 
 	from?: MailAddress;
+	replyTo?: MailAddress;
 	subject?: string;
 
 	constructor() {
@@ -34,7 +35,14 @@ export abstract class BaseMail {
 
 	async build(viewsRoot?: string): Promise<MailMessage> {
 		if (this.from !== undefined) {
-			this.message.from(formatAddress(this.from));
+			applyAddress(this.from, (address, name) =>
+				this.message.from(address, name),
+			);
+		}
+		if (this.replyTo !== undefined) {
+			applyAddress(this.replyTo, (address, name) =>
+				this.message.replyTo(address, name),
+			);
 		}
 		if (this.subject !== undefined) {
 			this.message.subject(this.subject);
@@ -46,9 +54,13 @@ export abstract class BaseMail {
 	}
 }
 
-function formatAddress(addr: MailAddress): string {
+function applyAddress(
+	addr: MailAddress,
+	set: (address: string, name?: string) => void,
+): void {
 	if (typeof addr === "string") {
-		return addr;
+		set(addr);
+		return;
 	}
-	return `"${addr.name}" <${addr.address}>`;
+	set(addr.address, addr.name);
 }

@@ -128,7 +128,9 @@ export class MailgunTransport implements MailTransport {
 		if (message.html) data.html = message.html;
 		if (message.replyTo) data["h:Reply-To"] = stripCrlf(message.replyTo);
 		for (const [k, v] of Object.entries(message.headers)) {
-			data[`h:${stripCrlf(k)}`] = stripCrlf(v);
+			data[`h:${stripCrlf(k)}`] = Array.isArray(v)
+				? v.map(stripCrlf).join(", ")
+				: stripCrlf(v);
 		}
 		if (message.attachments.length > 0) {
 			data.attachment = message.attachments.map((att) => {

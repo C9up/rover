@@ -281,7 +281,9 @@ function buildRawMime(message: MailMessage): string {
 	]);
 	for (const [k, v] of Object.entries(message.headers)) {
 		if (reserved.has(k.toLowerCase())) continue;
-		parts.push(`${stripCrlf(k)}: ${encodeHeaderWord(v)}`);
+		parts.push(
+			`${stripCrlf(k)}: ${encodeHeaderWord(Array.isArray(v) ? v.join(", ") : v)}`,
+		);
 	}
 
 	const hasAttachments = message.attachments.length > 0;

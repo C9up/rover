@@ -1,7 +1,6 @@
 export type { MailAddress } from "./BaseMail.js";
 export { BaseMail } from "./BaseMail.js";
 export { defineConfig } from "./config.js";
-export { RoverError } from "./RoverError.js";
 export type {
 	EmitterLike,
 	MailAttachment,
@@ -9,6 +8,8 @@ export type {
 	MailFailedEvent,
 	MailHooks,
 	MailMessage,
+	MailQueueEvent,
+	MailSendingEvent,
 	MailSendOutcome,
 	MailSendResult,
 	MailSentEvent,
@@ -18,10 +19,13 @@ export type {
 export {
 	LogTransport,
 	Mail,
+	Mailer,
 	MessageBuilder,
 	registerTransport,
 	SmtpTransport,
 } from "./Mail.js";
+export type { Recipient, RecipientObject } from "./MessageBuilder.js";
+export { RoverError } from "./RoverError.js";
 export { default as RoverProvider } from "./RoverProvider.js";
 export {
 	DEFAULT_RETRY_CONFIG,

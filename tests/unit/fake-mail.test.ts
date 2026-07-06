@@ -54,7 +54,7 @@ describe("rover > FakeMail / Mail.fake()", () => {
 		await mail.send((m) => m.to("also@y.com").subject("Reminder"));
 
 		expect(() => fake.assertSent({ to: "user@x.com" })).toThrow(
-			/no captured message matches.*Captured \(2\)/s,
+			/no sent message matches.*Captured \(2\)/s,
 		);
 	});
 
@@ -108,7 +108,7 @@ describe("rover > FakeMail / Mail.fake()", () => {
 
 		expect(() => fake.assertNotSent({ to: "nobody@x.com" })).not.toThrow();
 		expect(() => fake.assertNotSent({ to: "user@x.com" })).toThrow(
-			/at least one captured message matches/,
+			/at least one sent message matches/,
 		);
 	});
 
