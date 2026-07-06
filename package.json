@@ -34,6 +34,14 @@
       "types": "./src/transports/ResendTransport.ts",
       "import": "./src/transports/ResendTransport.ts"
     },
+    "./transports/brevo": {
+      "types": "./src/transports/BrevoTransport.ts",
+      "import": "./src/transports/BrevoTransport.ts"
+    },
+    "./transports/sparkpost": {
+      "types": "./src/transports/SparkPostTransport.ts",
+      "import": "./src/transports/SparkPostTransport.ts"
+    },
     "./testing": {
       "types": "./src/testing/FakeMail.ts",
       "import": "./src/testing/FakeMail.ts"
@@ -118,6 +126,14 @@
       "./transports/resend": {
         "types": "./dist/transports/ResendTransport.d.ts",
         "import": "./dist/transports/ResendTransport.js"
+      },
+      "./transports/brevo": {
+        "types": "./dist/transports/BrevoTransport.d.ts",
+        "import": "./dist/transports/BrevoTransport.js"
+      },
+      "./transports/sparkpost": {
+        "types": "./dist/transports/SparkPostTransport.d.ts",
+        "import": "./dist/transports/SparkPostTransport.js"
       },
       "./testing": {
         "types": "./dist/testing/FakeMail.d.ts",
