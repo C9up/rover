@@ -178,7 +178,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
 name = "rover-template-engine"
-version = "0.1.0"
+version = "0.1.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -187,7 +187,7 @@ dependencies = [
 
 [[package]]
 name = "rover-template-engine-napi"
-version = "0.1.0"
+version = "0.1.4"
 dependencies = [
  "napi",
  "napi-build",

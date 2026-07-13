@@ -1,6 +1,5 @@
 import { Buffer } from "node:buffer";
 import { MemoryDriver, QueueManager } from "@c9up/bay";
-import { RoverError } from "../../src/RoverError.js";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	BaseMail,
@@ -106,15 +105,14 @@ describe("rover > Mail.sendLater", () => {
 		expect(spy.sent[0].from).toBe("noreply@acme.com");
 	});
 
-	it("throws MAIL_QUEUE_REQUIRED when no queue is wired", async () => {
+	it("falls back to the in-memory messenger when no queue is wired (no throw)", async () => {
+		// Contract: no QueueManager → Adonis-parity in-memory fallback, NOT a
+		// MAIL_QUEUE_REQUIRED throw. (Also locked in the active mail.test.ts.)
 		const mail = makeMail("tail-later-4", new SpyTransport());
 
-		await expect(mail.sendLater((m) => m.to("u@x.com"))).rejects.toBeInstanceOf(
-			RoverError,
-		);
-		await expect(mail.sendLater((m) => m.to("u@x.com"))).rejects.toMatchObject({
-			code: "MAIL_QUEUE_REQUIRED",
-		});
+		const jobId = await mail.sendLater((m) => m.to("u@x.com"));
+		expect(typeof jobId).toBe("string");
+		expect(jobId.length).toBeGreaterThan(0);
 	});
 
 	it("Buffer attachments round-trip through the queue", async () => {

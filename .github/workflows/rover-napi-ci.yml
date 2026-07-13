@@ -25,6 +25,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+
+  # Typecheck + lint quality gate — one ubuntu run (no matrix). Mirrors the
+  # aggregate `verify:all` gate at the ream-dev root so a standalone clone of
+  # this package enforces the same bar.
+  quality:
+    name: Typecheck & lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with: { version: 9 }
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
   # Native-runner build matrix. No cross-compilation — each runner produces the
   # binary for its own platform via `pnpm build:napi` (cargo + scripts/copy-napi.mjs).
   # Rover's TS suite re-asserts that templates round-trip via NAPI on each
@@ -123,7 +140,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --workspace
+      # `--locked` fails if Cargo.lock is out of sync with the crate Cargo.toml
+      # versions (a drift that previously only surfaced when a local `cargo test`
+      # rewrote the lockfile).
+      - run: cargo test --workspace --locked
 
   # Publish job — gated on workflow_dispatch (manual maintainer trigger).
   # Requires NPM_TOKEN secret + a v<MAJOR>.<MINOR>.<PATCH> tag at HEAD matching
@@ -212,8 +232,9 @@ jobs:
         with:
           pattern: rover-napi-*
           merge-multiple: true
+      # Fail the publish on a broken build — the published package points to
+      # `dist` (publishConfig), so a failed `tsc` must NOT be ignored.
       - run: pnpm build
-        continue-on-error: true  # not every package has a build script
       - run: pnpm publish --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

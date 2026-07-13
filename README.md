@@ -77,7 +77,9 @@ await mail.sendLater((m) => m.to('user@acme.com').subject('Welcome').html('<p>Hi
 // returns a job id string; the actual send runs on the Bay worker.
 ```
 
-Without a `QueueManager` wired, `sendLater` throws `MAIL_QUEUE_REQUIRED`.
+Without a `QueueManager` wired, `sendLater` falls back to an in-memory
+messenger (immediate microtask dispatch) — matching `@adonisjs/mail`'s
+`MemoryQueueMessenger`. It never throws for a missing queue.
 
 ## Testing
 

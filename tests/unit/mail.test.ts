@@ -81,4 +81,21 @@ describe("rover > Mail", () => {
 		});
 		expect(() => mail.use("nope")).toThrow("not configured");
 	});
+
+	it("sendLater() without a queue falls back to the in-memory messenger (no throw, returns a job id)", async () => {
+		// Contract lock: no `QueueManager` wired → the Adonis-parity in-memory
+		// fallback (immediate microtask dispatch), NOT a `MAIL_QUEUE_REQUIRED`
+		// throw. Runs without @c9up/bay so it stays in the active suite (the
+		// queue-driven cases live in the bay-gated send-later.test.ts).
+		const mail = new Mail({
+			default: "log",
+			from: "test@example.com",
+			transports: { log: { transport: "log" } },
+		});
+		const jobId = await mail.sendLater((m) =>
+			m.to("user@example.com").subject("Hi"),
+		);
+		expect(typeof jobId).toBe("string");
+		expect(jobId.length).toBeGreaterThan(0);
+	});
 });

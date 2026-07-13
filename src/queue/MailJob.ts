@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
-import { RoverError } from "../RoverError.js";
 import type { MailAttachment, MailMessage } from "../Mail.js";
+import { RoverError } from "../RoverError.js";
 
 export const MAIL_JOB_NAME = "mail.send";
 
