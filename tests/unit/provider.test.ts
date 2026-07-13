@@ -25,7 +25,7 @@ function makeApp(opts: {
 		singleton(key: unknown, factory: Factory) {
 			bindings.set(key, factory);
 		},
-		resolve<T>(key: unknown): T {
+		async resolve<T>(key: unknown): Promise<T> {
 			if (typeof key === "string" && throwOn.has(key)) {
 				throw new Error(`unbound: ${key}`);
 			}
@@ -35,7 +35,7 @@ function makeApp(opts: {
 			if (singletons.has(key)) return singletons.get(key) as T;
 			const factory = bindings.get(key);
 			if (!factory) throw new Error(`unbound: ${String(key)}`);
-			const instance = factory();
+			const instance = await factory();
 			singletons.set(key, instance);
 			return instance as T;
 		},
@@ -51,7 +51,7 @@ function makeApp(opts: {
 }
 
 describe("rover > RoverProvider > register", () => {
-	it("binds Mail as a singleton resolvable from the container", () => {
+	it("binds Mail as a singleton resolvable from the container", async () => {
 		const app = makeApp({
 			mailConfig: {
 				default: "log",
@@ -62,13 +62,13 @@ describe("rover > RoverProvider > register", () => {
 		});
 		const provider = new RoverProvider(app);
 		provider.register();
-		const mail = app.container.resolve<Mail>(Mail);
+		const mail = await app.container.resolve<Mail>(Mail);
 		expect(mail).toBeInstanceOf(Mail);
 		// Second resolve must return the same instance (singleton contract).
-		expect(app.container.resolve<Mail>(Mail)).toBe(mail);
+		expect(await app.container.resolve<Mail>(Mail)).toBe(mail);
 	});
 
-	it('binds the string alias "mail" → same Mail instance', () => {
+	it('binds the string alias "mail" → same Mail instance', async () => {
 		const app = makeApp({
 			mailConfig: {
 				default: "log",
@@ -78,24 +78,24 @@ describe("rover > RoverProvider > register", () => {
 			throwOnResolve: ["QueueManager", "Emitter"],
 		});
 		new RoverProvider(app).register();
-		const byClass = app.container.resolve<Mail>(Mail);
-		const byAlias = app.container.resolve<Mail>("mail");
+		const byClass = await app.container.resolve<Mail>(Mail);
+		const byAlias = await app.container.resolve<Mail>("mail");
 		expect(byAlias).toBe(byClass);
 	});
 
-	it("falls back to a default log transport when no mail config is registered", () => {
+	it("falls back to a default log transport when no mail config is registered", async () => {
 		const app = makeApp({
 			mailConfig: undefined,
 			throwOnResolve: ["QueueManager", "Emitter"],
 		});
 		new RoverProvider(app).register();
-		const mail = app.container.resolve<Mail>(Mail);
+		const mail = await app.container.resolve<Mail>(Mail);
 		// The fallback default is `log`, `from: noreply@localhost`. We don't
 		// reach into Mail internals — just prove it constructs successfully.
 		expect(mail).toBeInstanceOf(Mail);
 	});
 
-	it("wires optional QueueManager / Emitter when registered in the container", () => {
+	it("wires optional QueueManager / Emitter when registered in the container", async () => {
 		const fakeQueue = { register: vi.fn(), push: vi.fn() };
 		const fakeEmitter = { dispatchEvent: vi.fn() };
 		const app = makeApp({
@@ -110,11 +110,11 @@ describe("rover > RoverProvider > register", () => {
 		// Just constructing Mail with the wired peers is enough to prove the
 		// `tryResolve` path took the success branch. Mail behaviour with the
 		// queue/emitter is covered by mail.test.ts / send-later.test.ts.
-		const mail = app.container.resolve<Mail>(Mail);
+		const mail = await app.container.resolve<Mail>(Mail);
 		expect(mail).toBeInstanceOf(Mail);
 	});
 
-	it("swallows resolve failures for missing optional peers (tryResolve fallback)", () => {
+	it("swallows resolve failures for missing optional peers (tryResolve fallback)", async () => {
 		const app = makeApp({
 			mailConfig: {
 				default: "log",
@@ -124,8 +124,10 @@ describe("rover > RoverProvider > register", () => {
 			throwOnResolve: ["QueueManager", "Emitter"],
 		});
 		new RoverProvider(app).register();
-		// The factory runs at resolve-time and must not throw despite the
+		// The factory runs at resolve-time and must not reject despite the
 		// container's `resolve("QueueManager")` rejecting.
-		expect(() => app.container.resolve<Mail>(Mail)).not.toThrow();
+		await expect(app.container.resolve<Mail>(Mail)).resolves.toBeInstanceOf(
+			Mail,
+		);
 	});
 });

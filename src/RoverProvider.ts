@@ -9,7 +9,7 @@ import { setMail } from "./services/main.js";
  */
 interface RoverContainer {
 	singleton(token: unknown, factory: () => unknown): void;
-	resolve<T = unknown>(token: unknown): T;
+	resolve<T = unknown>(token: unknown): Promise<T>;
 }
 interface RoverConfigStore {
 	get<T = unknown>(key: string): T | undefined;
@@ -23,7 +23,7 @@ export default class RoverProvider {
 	constructor(protected app: RoverAppContext) {}
 
 	register() {
-		this.app.container.singleton(Mail, () => {
+		this.app.container.singleton(Mail, async () => {
 			const config = this.app.config.get<MailConfig>("mail");
 			return new Mail(
 				config ?? {
@@ -36,10 +36,10 @@ export default class RoverProvider {
 					// `QueueManager` is registered in the container, Mail gets
 					// queue support for `sendLater()`. If not, `sendLater()`
 					// throws `MAIL_QUEUE_REQUIRED` at call time (by design).
-					queue: tryResolve<BayQueueLike>(this.app, "QueueManager"),
+					queue: await tryResolve<BayQueueLike>(this.app, "QueueManager"),
 					// Same pattern for the event bus `Emitter` — enables `mail.sent`
 					// / `mail.failed` emission when available.
-					emitter: tryResolve<EmitterLike>(this.app, "Emitter"),
+					emitter: await tryResolve<EmitterLike>(this.app, "Emitter"),
 				},
 			);
 		});
@@ -52,7 +52,7 @@ export default class RoverProvider {
 		// Populate the `@c9up/rover/services/main` singleton with the
 		// container-resolved Mail instance so apps can
 		// `import mail from '@c9up/rover/services/main'` from anywhere.
-		setMail(this.app.container.resolve<Mail>(Mail));
+		setMail(await this.app.container.resolve<Mail>(Mail));
 	}
 
 	async shutdown() {}
@@ -63,9 +63,12 @@ export default class RoverProvider {
  * registered. Rover never hard-depends on Bay or the event bus — both wire-points
  * are purely opt-in.
  */
-function tryResolve<T>(app: RoverAppContext, token: string): T | undefined {
+async function tryResolve<T>(
+	app: RoverAppContext,
+	token: string,
+): Promise<T | undefined> {
 	try {
-		return app.container.resolve<T>(token);
+		return await app.container.resolve<T>(token);
 	} catch {
 		return undefined;
 	}

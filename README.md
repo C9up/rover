@@ -27,7 +27,7 @@ Providers push delivery events (`delivered`, `bounced`, `failed`) to a URL you c
 import { createMailgunWebhookHandler } from '@c9up/rover/webhooks/mailgun'
 import { Emitter } from '@c9up/ream/events'
 
-const emitter = app.container.resolve(Emitter)
+const emitter = await app.container.resolve(Emitter)
 
 router.post(
   '/webhooks/mailgun',
