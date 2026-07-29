@@ -1,3 +1,4 @@
+import type { Plugin } from "@c9up/helix";
 import { BaseMail } from "../BaseMail.js";
 import type { MailMessage, MailSendOutcome, MailTransport } from "../Mail.js";
 
@@ -310,4 +311,49 @@ function describeCaptured(captured: Capture[]): string {
 			`  [${i}] to=[${e.message.to.join(", ")}] subject="${e.message.subject}" from="${e.message.from}"`,
 	);
 	return `Captured (${captured.length}):\n${lines.join("\n")}`;
+}
+
+/** A mailer that can enter/exit fake mode — structurally the rover `Mail` manager. */
+export interface FakeableMailer {
+	/** Activate fake mode and return the capturing {@link FakeMail}. */
+	fake(): FakeMail;
+	/** Exit fake mode. */
+	restore(): void;
+}
+
+/**
+ * `mailFake()` — a helix plugin (AdonisJS `mail.fake()` parity) that injects a
+ * fresh {@link FakeMail} on the test context as `ctx.mail`, PER TEST, and
+ * auto-restores the mailer afterwards via `ctx.cleanup`:
+ *
+ *   // tests/bootstrap.ts
+ *   import { configure } from "@c9up/helix";
+ *   import { mailFake } from "@c9up/rover/testing";
+ *   await configure({ plugins: [mailFake(mailer)] });
+ *
+ *   test("sends welcome", async ({ mail }) => {
+ *     await sendWelcome();
+ *     mail.assertSent((m) => m.hasTo("user@example.com"));
+ *   });
+ *
+ * The fake is activated lazily on first `ctx.mail` access (inside the test
+ * frame) and torn down when that test ends — so capture never leaks between
+ * tests. Uses the manager's own `fake()`/`restore()` (the Adonis pattern).
+ */
+export function mailFake(mailer: FakeableMailer): Plugin {
+	return (api) => {
+		api.context.getter("mail", (ctx) => {
+			const fake = mailer.fake();
+			ctx.cleanup(() => mailer.restore());
+			return fake;
+		});
+	};
+}
+
+// Typing side of the plugin — importing `@c9up/rover/testing` augments the
+// helix test context with `mail` (the Japa pattern).
+declare module "@c9up/helix" {
+	interface TestContext {
+		mail: FakeMail;
+	}
 }

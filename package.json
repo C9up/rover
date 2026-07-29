@@ -75,15 +75,20 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.10",
+    "@c9up/helix": "^0.1.0",
     "@types/node": "*",
     "@types/nodemailer": "^7.0.0",
     "typescript": "^6.0.2",
     "vitest": "^4.1.2"
   },
   "peerDependencies": {
+    "@c9up/helix": "^0.1.0",
     "@c9up/ream": "^0.1.0"
   },
   "peerDependenciesMeta": {
+    "@c9up/helix": {
+      "optional": true
+    },
     "@c9up/ream": {
       "optional": true
     }
