@@ -6,7 +6,7 @@ import {
 	registerTransport,
 } from "../Mail.js";
 import { RoverError } from "../RoverError.js";
-import { wrapFetchNetworkError } from "./fetchError.js";
+import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
 const normalizeConfig = (v: string): string => stripCrlf(v).trim();
@@ -104,7 +104,7 @@ export class ResendTransport implements MailTransport {
 		// shims, `.cause.code` for Node's built-in undici).
 		let res: Response;
 		try {
-			res = await fetch("https://api.resend.com/emails", {
+			res = await fetchWithTimeout("Resend", "https://api.resend.com/emails", {
 				method: "POST",
 				headers: {
 					Authorization: `Bearer ${this.#apiKey}`,

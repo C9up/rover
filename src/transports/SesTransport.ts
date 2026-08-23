@@ -8,7 +8,7 @@ import {
 	registerTransport,
 } from "../Mail.js";
 import { RoverError } from "../RoverError.js";
-import { wrapFetchNetworkError } from "./fetchError.js";
+import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
 const normalizeConfig = (v: string): string => stripCrlf(v).trim();
@@ -112,7 +112,7 @@ export class SesTransport implements MailTransport {
 		// why undici's `cause.code` matters for retry classification.
 		let res: Response;
 		try {
-			res = await fetch(url, {
+			res = await fetchWithTimeout("SES", url, {
 				method: "POST",
 				headers,
 				body: form,

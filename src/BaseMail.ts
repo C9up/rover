@@ -2,6 +2,12 @@ import { type MailMessage, MessageBuilder } from "./MessageBuilder.js";
 
 export type MailAddress = string | { address: string; name?: string };
 
+/** The little a mail needs of a mailer to dispatch itself. */
+export interface MailSender<R> {
+	send(mail: BaseMail): Promise<R>;
+	sendLater(mail: BaseMail): Promise<unknown>;
+}
+
 /**
  * Abstract base for class-based mail messages (Adonis parity).
  *
@@ -17,7 +23,14 @@ export type MailAddress = string | { address: string; name?: string };
  *   await mail.send(new WelcomeMail(user));
  */
 export abstract class BaseMail {
-	protected readonly message: MessageBuilder = new MessageBuilder();
+	/**
+	 * The message this mail builds.
+	 *
+	 * Public, because a test asserts on it from outside —
+	 * `mails.assertSent(WelcomeMail, (mail) => mail.message.hasTo(user.email))`
+	 * — and a caller may add a recipient before dispatching.
+	 */
+	readonly message: MessageBuilder = new MessageBuilder();
 
 	from?: MailAddress;
 	replyTo?: MailAddress;
@@ -32,6 +45,32 @@ export abstract class BaseMail {
 	}
 
 	abstract prepare(): void | Promise<void>;
+
+	/**
+	 * Send this mail through `mailer`.
+	 *
+	 *   await new WelcomeMail(user).send(mail.use('smtp'))
+	 *
+	 * The mail object is the dispatchable unit, so it can be handed around and
+	 * sent by whoever holds a mailer.
+	 */
+	async send<R>(mailer: MailSender<R>): Promise<R> {
+		return mailer.send(this);
+	}
+
+	/** Queue this mail for background delivery (Adonis `sendLater`). */
+	async sendLater(mailer: MailSender<unknown>): Promise<void> {
+		await mailer.sendLater(this);
+	}
+
+	/**
+	 * Build the message AND render its templates ahead of time (Adonis
+	 * `buildWithContents`), so the contents can be inspected before sending —
+	 * which is what an assertion on the rendered html needs.
+	 */
+	async buildWithContents(viewsRoot?: string): Promise<MailMessage> {
+		return this.build(viewsRoot);
+	}
 
 	async build(viewsRoot?: string): Promise<MailMessage> {
 		if (this.from !== undefined) {

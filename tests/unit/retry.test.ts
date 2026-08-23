@@ -1,4 +1,3 @@
-import { RoverError } from "../../src/RoverError.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	Mail,
@@ -6,6 +5,7 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../../src/index.js";
+import { RoverError } from "../../src/RoverError.js";
 
 type Step = "ok" | Error;
 

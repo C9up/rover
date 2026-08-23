@@ -40,3 +40,42 @@ export function wrapFetchNetworkError(
 		},
 	);
 }
+
+/** Default ceiling on one provider request. */
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+/**
+ * `fetch` with a deadline.
+ *
+ * Without one, a stalled provider connection never settles: the send hangs,
+ * the queue worker holding it hangs with it, and enough of them stop mail going
+ * out at all — with no error to explain the silence. A timeout surfaces as the
+ * same `MAIL_PROVIDER_ERROR` shape the retry classifier already understands, so
+ * it is retried like any other transient network failure.
+ */
+export async function fetchWithTimeout(
+	provider: string,
+	url: string,
+	init: RequestInit = {},
+	timeoutMs: number = DEFAULT_TIMEOUT_MS,
+): Promise<Response> {
+	if (timeoutMs <= 0) return fetch(url, init);
+	try {
+		return await fetch(url, {
+			...init,
+			signal: AbortSignal.timeout(timeoutMs),
+		});
+	} catch (err) {
+		if (err instanceof Error && err.name === "TimeoutError") {
+			throw new RoverError(
+				"MAIL_PROVIDER_ERROR",
+				`${provider} did not answer within ${timeoutMs}ms.`,
+				{
+					context: { provider, upstreamStatus: "0", networkCode: "ETIMEDOUT" },
+					hint: "Raise `requestTimeoutMs` for large attachments, or check connectivity to the provider.",
+				},
+			);
+		}
+		throw wrapFetchNetworkError(provider, err);
+	}
+}

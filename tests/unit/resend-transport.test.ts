@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
-import { RoverError } from "../../src/RoverError.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
+import { RoverError } from "../../src/RoverError.js";
 import { ResendTransport } from "../../src/transports/ResendTransport.js";
 
 const baseMessage = (): MailMessage => ({

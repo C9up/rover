@@ -6,7 +6,7 @@ import {
 	registerTransport,
 } from "../Mail.js";
 import { RoverError } from "../RoverError.js";
-import { wrapFetchNetworkError } from "./fetchError.js";
+import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
 const normalizeConfig = (v: string): string => stripCrlf(v).trim();
@@ -113,7 +113,7 @@ export class BrevoTransport implements MailTransport {
 
 		let res: Response;
 		try {
-			res = await fetch(`${this.#baseUrl}/v3/smtp/email`, {
+			res = await fetchWithTimeout("Brevo", `${this.#baseUrl}/v3/smtp/email`, {
 				method: "POST",
 				headers: {
 					"api-key": this.#apiKey,

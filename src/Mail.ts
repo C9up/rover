@@ -59,6 +59,11 @@ export type MailSendOutcome = MailSendResult | undefined;
 
 export interface MailTransport {
 	send(message: MailMessage): Promise<MailSendOutcome>;
+	/**
+	 * Release what this transport holds open — an SMTP connection pool, mostly.
+	 * Optional: an HTTP-API transport has nothing to close.
+	 */
+	close?(): Promise<void>;
 }
 
 /**
@@ -124,7 +129,16 @@ export interface MailFailedEvent {
 export interface MailConfig {
 	default: string;
 	from: string;
-	transports: Record<
+	transports?: Record<
+		string,
+		{ transport: string; retry?: RetryConfig; [key: string]: unknown }
+	>;
+	/**
+	 * AdonisJS spelling of `transports`. Both are accepted and mean the same
+	 * thing, so a migrated `config/mail.ts` runs with its imports rewritten and
+	 * nothing else.
+	 */
+	mailers?: Record<
 		string,
 		{ transport: string; retry?: RetryConfig; [key: string]: unknown }
 	>;
@@ -258,6 +272,14 @@ export class SmtpTransport implements MailTransport {
 			throw wrapSmtpError(err);
 		}
 	}
+
+	/**
+	 * Drain nodemailer's connection pool. Idempotent — nodemailer tolerates a
+	 * second close, and a shutdown path may run twice.
+	 */
+	async close(): Promise<void> {
+		this.#transporter.close();
+	}
 }
 
 /**
@@ -377,7 +399,10 @@ export class Mail {
 			setViewsRoot(config.viewsRoot);
 		}
 
-		for (const [name, transportConfig] of Object.entries(config.transports)) {
+		// `mailers` (AdonisJS) and `transports` (rover) are the same map under two
+		// names; a config that sets both gets both, last name wins per key.
+		const declared = { ...config.transports, ...config.mailers };
+		for (const [name, transportConfig] of Object.entries(declared)) {
 			const factory = transportFactories[transportConfig.transport];
 			if (!factory) {
 				throw new RoverError(
@@ -679,6 +704,26 @@ export class Mail {
 		const t = this.#transports.get(name);
 		if (!t) throw new Error(`Mail transport '${name}' not configured`);
 		return t;
+	}
+
+	/**
+	 * Close one transport's open connections (Adonis `close`).
+	 *
+	 * An SMTP pool keeps sockets alive between sends; a process that exits
+	 * without closing them leaves the server holding connections until it times
+	 * them out. Unknown or already-closed names are a no-op — shutdown is not
+	 * the place to throw.
+	 */
+	async close(name?: string): Promise<void> {
+		const transportName = name ?? this.#defaultTransport;
+		await this.#transports.get(transportName)?.close?.();
+	}
+
+	/** Close every built transport (Adonis `closeAll`). What a shutdown hook calls. */
+	async closeAll(): Promise<void> {
+		await Promise.all(
+			[...this.#transports.values()].map((transport) => transport.close?.()),
+		);
 	}
 
 	/**

@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { RoverError } from "../../src/RoverError.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { RoverError } from "../../src/RoverError.js";
 import {
 	render,
 	resetCache,
@@ -72,9 +72,9 @@ describe("resolve — arr.length parity (R4)", () => {
 	it("resolves arr.length to the element count, like the pre-migration engine", async () => {
 		expect(await render("{{ items.length }}", { items: [1, 2, 3] })).toBe("3");
 		expect(await render("{{ items.length }}", { items: [] })).toBe("0");
-		expect(
-			await render("{{#if items.length}}yes{{/if}}", { items: [1] }),
-		).toBe("yes");
+		expect(await render("{{#if items.length}}yes{{/if}}", { items: [1] })).toBe(
+			"yes",
+		);
 	});
 });
 

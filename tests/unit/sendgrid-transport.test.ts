@@ -1,6 +1,6 @@
-import { RoverError } from "../../src/RoverError.js";
 import { describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
+import { RoverError } from "../../src/RoverError.js";
 import { SendGridTransport } from "../../src/transports/SendGridTransport.js";
 
 const baseMessage = (): MailMessage => ({

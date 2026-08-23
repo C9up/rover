@@ -1,4 +1,5 @@
 import { formatAddress } from "./format.js";
+import { RoverError } from "./RoverError.js";
 import { renderFile as renderTemplateFile } from "./templating/SimpleTemplate.js";
 
 export interface MailMessage {
@@ -20,6 +21,16 @@ export interface MailMessage {
 	inReplyTo?: string;
 	/** `References` header — the thread's message ids. */
 	references?: string[];
+	/** SMTP envelope, when it differs from the visible From/To headers. */
+	envelope?: MailEnvelope;
+}
+
+/** The addresses the mail SERVERS use, as distinct from the visible headers. */
+export interface MailEnvelope {
+	from?: string;
+	to?: string | string[];
+	cc?: string | string[];
+	bcc?: string | string[];
 }
 
 export interface MailAttachment {
@@ -41,6 +52,24 @@ export interface RecipientObject {
 
 export type Recipient = string | RecipientObject;
 
+/** Whether `list` holds `address`, or anything at all when it is omitted. */
+function contains(list: readonly string[], address?: string): boolean {
+	if (address === undefined) return list.length > 0;
+	// Addresses are stored formatted (`"Name" <a@b.c>`), so an assertion on the
+	// bare address has to match inside the display form too.
+	return list.some(
+		(entry) => entry === address || entry.includes(`<${address}>`),
+	);
+}
+
+function expect(passed: boolean, expectation: string, actual: unknown): void {
+	if (passed) return;
+	throw new RoverError(
+		"ASSERTION_FAILED",
+		`Expected the message ${expectation}, got ${JSON.stringify(actual)}`,
+	);
+}
+
 export class MessageBuilder {
 	#msg: MailMessage = {
 		from: "",
@@ -52,6 +81,136 @@ export class MessageBuilder {
 		headers: {},
 	};
 	#pendingView: { path: string; data: Record<string, unknown> } | null = null;
+	#pendingTextView: { path: string; data: Record<string, unknown> } | null =
+		null;
+
+	/**
+	 * Render a template as the PLAIN-TEXT body (AdonisJS `textView`).
+	 *
+	 * The counterpart of `htmlView`. A message with only an HTML part scores
+	 * worse with spam filters and is unreadable in a text-only client, which is
+	 * why upstream offers both.
+	 */
+	textView(path: string, data: Record<string, unknown> = {}): this {
+		this.#pendingTextView = { path, data };
+		return this;
+	}
+
+	/**
+	 * Override the SMTP envelope — who the message is really from and to, as
+	 * far as the mail servers are concerned (AdonisJS `envelope`).
+	 *
+	 * Distinct from the `From`/`To` HEADERS: a bounce goes to the envelope
+	 * sender, which is how VERP and mailing lists route failures away from the
+	 * visible author.
+	 */
+	envelope(envelope: MailEnvelope): this {
+		this.#msg.envelope = envelope;
+		return this;
+	}
+
+	/**
+	 * The message as built so far — what the `has*` / `assert*` helpers read.
+	 *
+	 * Exposed because a test asserts against a mail it never sent, and the
+	 * alternative is rebuilding the message just to look at it.
+	 */
+	toObject(): Readonly<MailMessage> {
+		return this.#msg;
+	}
+
+	toJSON(): Readonly<MailMessage> {
+		return this.toObject();
+	}
+
+	// ── Inspection ────────────────────────────────────────────────────────
+	// `has*` answers, `assert*` throws. Both exist because a test reads better
+	// as an assertion and a conditional reads better as a question.
+
+	hasTo(address?: string): boolean {
+		return contains(this.#msg.to, address);
+	}
+	hasCc(address?: string): boolean {
+		return contains(this.#msg.cc, address);
+	}
+	hasBcc(address?: string): boolean {
+		return contains(this.#msg.bcc, address);
+	}
+	hasFrom(address?: string): boolean {
+		return contains(this.#msg.from ? [this.#msg.from] : [], address);
+	}
+	hasReplyTo(address?: string): boolean {
+		return contains(this.#msg.replyTo ? [this.#msg.replyTo] : [], address);
+	}
+	hasSubject(subject?: string): boolean {
+		if (subject === undefined) return this.#msg.subject !== "";
+		return this.#msg.subject === subject;
+	}
+	hasAttachment(filename?: string): boolean {
+		if (filename === undefined) return this.#msg.attachments.length > 0;
+		return this.#msg.attachments.some((a) => a.filename === filename);
+	}
+	hasHeader(name: string, value?: string): boolean {
+		const found = this.#msg.headers[name];
+		if (found === undefined) return false;
+		if (value === undefined) return true;
+		return Array.isArray(found) ? found.includes(value) : found === value;
+	}
+
+	assertTo(address: string): void {
+		expect(this.hasTo(address), `to include "${address}"`, this.#msg.to);
+	}
+	assertFrom(address: string): void {
+		expect(this.hasFrom(address), `from to be "${address}"`, this.#msg.from);
+	}
+	assertCc(address: string): void {
+		expect(this.hasCc(address), `cc to include "${address}"`, this.#msg.cc);
+	}
+	assertBcc(address: string): void {
+		expect(this.hasBcc(address), `bcc to include "${address}"`, this.#msg.bcc);
+	}
+	assertReplyTo(address: string): void {
+		expect(
+			this.hasReplyTo(address),
+			`replyTo to be "${address}"`,
+			this.#msg.replyTo,
+		);
+	}
+	assertSubject(subject: string): void {
+		expect(
+			this.hasSubject(subject),
+			`subject to be "${subject}"`,
+			this.#msg.subject,
+		);
+	}
+	assertAttachment(filename: string): void {
+		expect(
+			this.hasAttachment(filename),
+			`an attachment named "${filename}"`,
+			this.#msg.attachments.map((a) => a.filename),
+		);
+	}
+	assertHeader(name: string, value?: string): void {
+		expect(
+			this.hasHeader(name, value),
+			value === undefined ? `a "${name}" header` : `${name}: ${value}`,
+			this.#msg.headers[name],
+		);
+	}
+	assertHtmlIncludes(substring: string): void {
+		expect(
+			(this.#msg.html ?? "").includes(substring),
+			`html to include "${substring}"`,
+			this.#msg.html,
+		);
+	}
+	assertTextIncludes(substring: string): void {
+		expect(
+			(this.#msg.text ?? "").includes(substring),
+			`text to include "${substring}"`,
+			this.#msg.text,
+		);
+	}
 
 	from(address: string, name?: string): this {
 		this.#msg.from = formatAddress(address, name);
@@ -171,6 +330,15 @@ export class MessageBuilder {
 				viewsRoot,
 			);
 			this.#pendingView = null;
+		}
+		if (this.#pendingTextView !== null) {
+			this.#msg.text = await renderTemplateFile(
+				this.#pendingTextView.path,
+				this.#pendingTextView.data,
+				undefined,
+				viewsRoot,
+			);
+			this.#pendingTextView = null;
 		}
 		return this.#msg;
 	}

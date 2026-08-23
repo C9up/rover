@@ -6,8 +6,9 @@
  * `.cause.code`, neither), `RoverError` pass-through, and message
  * fallback when the rejection carries no `.message`.
  */
-import { RoverError } from "../../src/RoverError.js";
+
 import { describe, expect, it } from "vitest";
+import { RoverError } from "../../src/RoverError.js";
 import { wrapFetchNetworkError } from "../../src/transports/fetchError.js";
 
 describe("rover > wrapFetchNetworkError", () => {
