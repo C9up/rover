@@ -90,7 +90,10 @@ describe("rover > FakeMail / Mail.fake()", () => {
 		const mail = makeMail("tail-fake-6", new TailTransport());
 		const fake = mail.fake();
 		await mail.send((m) =>
-			m.to("u@x.com").subject("X").attach("file.txt", "content", "text/plain"),
+			m.to("u@x.com").subject("X").attachData("content", {
+				filename: "file.txt",
+				contentType: "text/plain",
+			}),
 		);
 
 		expect(() =>

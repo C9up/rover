@@ -7,6 +7,7 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
+import { attachmentsFor } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
@@ -101,7 +102,8 @@ export class SesTransport implements MailTransport {
 		// compose the MIME ourselves), so flip to raw whenever the message
 		// carries headers, even without attachments.
 		const useRaw =
-			message.attachments.length > 0 || Object.keys(message.headers).length > 0;
+			attachmentsFor(message).length > 0 ||
+			Object.keys(message.headers).length > 0;
 		const form = useRaw
 			? buildRawEmailForm(message)
 			: buildSendEmailForm(message);
@@ -286,7 +288,7 @@ function buildRawMime(message: MailMessage): string {
 		);
 	}
 
-	const hasAttachments = message.attachments.length > 0;
+	const hasAttachments = attachmentsFor(message).length > 0;
 	const mixedBoundary = freshBoundary();
 
 	if (hasAttachments) {
@@ -294,7 +296,7 @@ function buildRawMime(message: MailMessage): string {
 		parts.push("");
 		parts.push(`--${mixedBoundary}`);
 		appendBodyBlock(parts, message);
-		for (const att of message.attachments) {
+		for (const att of attachmentsFor(message)) {
 			appendAttachmentPart(parts, mixedBoundary, att);
 		}
 		parts.push(`--${mixedBoundary}--`);

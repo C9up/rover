@@ -35,10 +35,16 @@ export {
 	SmtpTransport,
 } from "./Mail.js";
 export type {
+	AttachmentOptions,
+	CalendarEvent,
+	CalendarEventMethod,
+	CalendarEventOptions,
+	ListHeader,
 	MailEnvelope,
 	Recipient,
 	RecipientObject,
 } from "./MessageBuilder.js";
+export { attachmentsFor } from "./MessageBuilder.js";
 export { RoverError } from "./RoverError.js";
 export { default as RoverProvider } from "./RoverProvider.js";
 export {

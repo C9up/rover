@@ -7,6 +7,7 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
+import { attachmentsFor } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
@@ -132,8 +133,8 @@ export class MailgunTransport implements MailTransport {
 				? v.map(stripCrlf).join(", ")
 				: stripCrlf(v);
 		}
-		if (message.attachments.length > 0) {
-			data.attachment = message.attachments.map((att) => {
+		if (attachmentsFor(message).length > 0) {
+			data.attachment = attachmentsFor(message).map((att) => {
 				const entry: { filename: string; data: Buffer; contentType?: string } =
 					{
 						filename: stripCrlf(att.filename),

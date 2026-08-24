@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { basename } from "node:path";
+import { fileURLToPath } from "node:url";
 import { formatAddress } from "./format.js";
 import { RoverError } from "./RoverError.js";
 import { renderFile as renderTemplateFile } from "./templating/SimpleTemplate.js";
@@ -23,6 +26,48 @@ export interface MailMessage {
 	references?: string[];
 	/** SMTP envelope, when it differs from the visible From/To headers. */
 	envelope?: MailEnvelope;
+	/** Body transfer encoding (nodemailer `encoding`). SMTP only. */
+	encoding?: string;
+	/** RFC 2369 `List-*` headers, keyed WITHOUT the `List-` prefix. */
+	list?: Record<string, ListHeader | ListHeader[] | ListHeader[][]>;
+	/** A calendar invitation carried as `text/calendar` (nodemailer `icalEvent`). */
+	icalEvent?: CalendarEvent;
+}
+
+/**
+ * One `List-*` header value: a bare URL, or a URL with a human comment.
+ *
+ * `comment` is REQUIRED in the object form, as it is in nodemailer and
+ * AdonisJS — a URL without a comment is the bare string form.
+ */
+export type ListHeader = string | { url: string; comment: string };
+
+/** How the receiving client should treat the invitation (RFC 5546). */
+export type CalendarEventMethod =
+	| "PUBLISH"
+	| "REQUEST"
+	| "REPLY"
+	| "ADD"
+	| "CANCEL"
+	| "REFRESH"
+	| "COUNTER"
+	| "DECLINECOUNTER";
+
+/** Options shared by the three `icalEvent*` forms (AdonisJS `CalendarEventOptions`). */
+export interface CalendarEventOptions {
+	method?: CalendarEventMethod;
+	filename?: string;
+	encoding?: string;
+}
+
+/**
+ * A calendar invitation. Exactly one source: inline `content`, a `path` read at
+ * {@link MessageBuilder.build} time, or an `href` the provider fetches.
+ */
+export interface CalendarEvent extends CalendarEventOptions {
+	content?: string;
+	path?: string;
+	href?: string;
 }
 
 /** The addresses the mail SERVERS use, as distinct from the visible headers. */
@@ -37,8 +82,25 @@ export interface MailAttachment {
 	filename: string;
 	content: Buffer | string;
 	contentType?: string;
-	/** Content-ID for inline (CID) embedding — set via `embedData()`. */
+	/** Content-ID for inline (CID) embedding — set via `embed()` / `embedData()`. */
 	cid?: string;
+	/** Source path, kept so `hasAttachment(file)` can answer by path. */
+	path?: string;
+	/** `Content-Disposition`, when it is not the default for the form used. */
+	contentDisposition?: "attachment" | "inline";
+	/** `Content-Transfer-Encoding` for this part. */
+	encoding?: string;
+	/** Extra part headers. */
+	headers?: Record<string, string | string[]>;
+}
+
+/** What the `attach*` / `embed*` methods accept (AdonisJS `AttachmentOptions`). */
+export interface AttachmentOptions {
+	filename?: string;
+	contentType?: string;
+	contentDisposition?: "attachment" | "inline";
+	encoding?: string;
+	headers?: Record<string, string | string[]>;
 }
 
 /**
@@ -60,6 +122,82 @@ function contains(list: readonly string[], address?: string): boolean {
 	return list.some(
 		(entry) => entry === address || entry.includes(`<${address}>`),
 	);
+}
+
+/**
+ * The parts a transport with no calendar field must send: the declared
+ * attachments, plus the invitation rendered as a `text/calendar` part.
+ *
+ * Only nodemailer has a native `icalEvent`; the provider HTTP APIs carry an
+ * invitation the way every mail client reads it anyway — as an attachment with
+ * the right media type and `method` parameter.
+ */
+export function attachmentsFor(message: MailMessage): MailAttachment[] {
+	const ical = message.icalEvent;
+	if (ical === undefined) return message.attachments;
+	if (ical.content === undefined) {
+		// `icalEventFromUrl` leaves only an href, which nodemailer fetches for
+		// SMTP. An HTTP provider takes the bytes, and silently dropping the
+		// invitation would be worse than saying so.
+		throw new RoverError(
+			"ICAL_HREF_UNSUPPORTED",
+			"icalEventFromUrl() is only supported by the SMTP transport, which fetches the URL itself.",
+			{
+				hint: "Fetch the ICS yourself and pass it to icalEvent(contents), or use icalEventFromFile().",
+			},
+		);
+	}
+	const method = ical.method ?? "PUBLISH";
+	return [
+		...message.attachments,
+		{
+			filename: ical.filename ?? "invite.ics",
+			content: ical.content,
+			contentType: `text/calendar; charset=utf-8; method=${method}`,
+			encoding: ical.encoding,
+		},
+	];
+}
+
+/** Read a file declared by `attach()` / `embed()` / `icalEventFromFile()`. */
+async function readAttachment(path: string, label: string): Promise<Buffer> {
+	try {
+		return await readFile(path);
+	} catch (err) {
+		throw new RoverError(
+			"ATTACHMENT_UNREADABLE",
+			`Could not read ${label} from "${path}": ${err instanceof Error ? err.message : String(err)}`,
+			{
+				hint: "Give an absolute path, or attach the bytes with attachData() / embedData().",
+			},
+		);
+	}
+}
+
+/** Every URL inside a `List-*` value, whatever nesting form it was written in. */
+function listUrls(value: ListHeader | ListHeader[] | ListHeader[][]): string[] {
+	if (typeof value === "string") return [value];
+	if (Array.isArray(value)) return value.flatMap((entry) => listUrls(entry));
+	return [value.url];
+}
+
+/** `unsubscribe` → `Unsubscribe`, `unsubscribe-post` → `Unsubscribe-Post`. */
+function titleCaseKey(key: string): string {
+	return key
+		.split("-")
+		.map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+		.join("-");
+}
+
+/** Render one `List-*` value the way RFC 2369 writes it: `<url> (comment)`. */
+function renderListHeader(
+	value: ListHeader | ListHeader[] | ListHeader[][],
+): string {
+	if (typeof value === "string") return `<${value}>`;
+	if (Array.isArray(value)) {
+		return value.map((entry) => renderListHeader(entry)).join(", ");
+	}
+	return value.comment ? `<${value.url}> (${value.comment})` : `<${value.url}>`;
 }
 
 function expect(passed: boolean, expectation: string, actual: unknown): void {
@@ -146,9 +284,48 @@ export class MessageBuilder {
 		if (subject === undefined) return this.#msg.subject !== "";
 		return this.#msg.subject === subject;
 	}
-	hasAttachment(filename?: string): boolean {
-		if (filename === undefined) return this.#msg.attachments.length > 0;
-		return this.#msg.attachments.some((a) => a.filename === filename);
+	/**
+	 * Whether the message carries an attachment — any at all, one with this
+	 * filename or source path, or one a predicate accepts (AdonisJS
+	 * `hasAttachment`, whose overloads are the same three).
+	 */
+	hasAttachment(
+		match?: string | URL | ((attachment: MailAttachment) => boolean),
+	): boolean {
+		if (match === undefined) return this.#msg.attachments.length > 0;
+		if (typeof match === "function") return this.#msg.attachments.some(match);
+		const needle = match instanceof URL ? fileURLToPath(match) : match;
+		return this.#msg.attachments.some(
+			(a) => a.filename === needle || a.path === needle,
+		);
+	}
+
+	/**
+	 * Whether `address` is a recipient in ANY field (AdonisJS `hasRecipient`).
+	 * Without one, whether the message has a recipient at all.
+	 */
+	hasRecipient(address?: string): boolean {
+		return this.hasTo(address) || this.hasCc(address) || this.hasBcc(address);
+	}
+
+	/**
+	 * Whether the given text appears in the HTML body or the plain-text one
+	 * (AdonisJS `hasContent`). The field-specific assertions are
+	 * {@link assertHtmlIncludes} and {@link assertTextIncludes}.
+	 */
+	hasContent(needle: string): boolean {
+		return (
+			(this.#msg.html?.includes(needle) ?? false) ||
+			(this.#msg.text?.includes(needle) ?? false)
+		);
+	}
+
+	/** Whether a `List-<key>` header was defined. */
+	hasListHeader(key: string, url?: string): boolean {
+		const value = this.#msg.list?.[key];
+		if (value === undefined) return false;
+		if (url === undefined) return true;
+		return listUrls(value).includes(url);
 	}
 	hasHeader(name: string, value?: string): boolean {
 		const found = this.#msg.headers[name];
@@ -183,12 +360,33 @@ export class MessageBuilder {
 			this.#msg.subject,
 		);
 	}
-	assertAttachment(filename: string): void {
+	assertAttachment(
+		match: string | URL | ((attachment: MailAttachment) => boolean),
+	): void {
 		expect(
-			this.hasAttachment(filename),
-			`an attachment named "${filename}"`,
-			this.#msg.attachments.map((a) => a.filename),
+			this.hasAttachment(match),
+			typeof match === "function"
+				? "an attachment matching the predicate"
+				: `an attachment named "${String(match)}"`,
+			this.#msg.attachments.map((a) => a.path ?? a.filename),
 		);
+	}
+
+	/** `address` is a recipient in some field (AdonisJS `assertRecipient`). */
+	assertRecipient(address: string): void {
+		expect(this.hasRecipient(address), `to reach "${address}"`, {
+			to: this.#msg.to,
+			cc: this.#msg.cc,
+			bcc: this.#msg.bcc,
+		});
+	}
+
+	/** The text appears in the HTML or the plain-text body (AdonisJS `assertContent`). */
+	assertContent(needle: string): void {
+		expect(this.hasContent(needle), `to contain "${needle}"`, {
+			html: this.#msg.html,
+			text: this.#msg.text,
+		});
 	}
 	assertHeader(name: string, value?: string): void {
 		expect(
@@ -280,28 +478,189 @@ export class MessageBuilder {
 		return this;
 	}
 
-	attach(
-		filename: string,
-		content: Buffer | string,
-		contentType?: string,
-	): this {
-		this.#msg.attachments.push({ filename, content, contentType });
+	/**
+	 * Attach a FILE by path or `file://` URL (AdonisJS `attach`). The bytes are
+	 * read at {@link build} time, so the fluent chain stays synchronous.
+	 *
+	 * The filename defaults to the file's own basename. For bytes you already
+	 * hold, use {@link attachData}.
+	 */
+	attach(file: string | URL, options?: AttachmentOptions): this {
+		const path = file instanceof URL ? fileURLToPath(file) : file;
+		this.#msg.attachments.push({
+			filename: options?.filename ?? basename(path),
+			// Filled in by `build()`; an unread attachment must never ship as an
+			// empty part, so `build()` failing to read is an error, not a warning.
+			content: "",
+			path,
+			contentType: options?.contentType,
+			contentDisposition: options?.contentDisposition,
+			encoding: options?.encoding,
+			headers: options?.headers,
+		});
 		return this;
 	}
 
 	/**
-	 * Embed inline content referenced by a Content-ID. Use `cid:<cid>` inside the
-	 * HTML body to reference it. Content-based (rover is agnostic / no-fs): the
-	 * path-based `embed(file, cid)` form from `@adonisjs/mail` is a deliberate
-	 * divergence — pass the bytes directly instead.
+	 * Attach bytes you already hold (AdonisJS `attachData`). `filename` is
+	 * required — there is no path to take it from.
 	 */
-	embedData(content: Buffer | string, cid: string, contentType?: string): this {
-		this.#msg.attachments.push({ filename: cid, content, contentType, cid });
+	attachData(
+		content: Buffer | string,
+		options: AttachmentOptions & { filename: string },
+	): this {
+		this.#msg.attachments.push({
+			filename: options.filename,
+			content,
+			contentType: options.contentType,
+			contentDisposition: options.contentDisposition,
+			encoding: options.encoding,
+			headers: options.headers,
+		});
+		return this;
+	}
+
+	/**
+	 * Embed a FILE inline, referenced by `cid:<cid>` in the HTML body (AdonisJS
+	 * `embed`). Read at {@link build} time, like {@link attach}.
+	 */
+	embed(file: string | URL, cid: string, options?: AttachmentOptions): this {
+		const path = file instanceof URL ? fileURLToPath(file) : file;
+		this.#msg.attachments.push({
+			filename: options?.filename ?? basename(path),
+			content: "",
+			path,
+			cid,
+			contentType: options?.contentType,
+			contentDisposition: options?.contentDisposition ?? "inline",
+			encoding: options?.encoding,
+			headers: options?.headers,
+		});
+		return this;
+	}
+
+	/**
+	 * Embed bytes you already hold, referenced by `cid:<cid>` in the HTML body
+	 * (AdonisJS `embedData`).
+	 */
+	embedData(
+		content: Buffer | string,
+		cid: string,
+		options?: AttachmentOptions,
+	): this {
+		this.#msg.attachments.push({
+			filename: options?.filename ?? cid,
+			content,
+			cid,
+			contentType: options?.contentType,
+			contentDisposition: options?.contentDisposition ?? "inline",
+			encoding: options?.encoding,
+			headers: options?.headers,
+		});
 		return this;
 	}
 
 	header(key: string, value: string | string[]): this {
 		this.#msg.headers[key] = value;
+		return this;
+	}
+
+	/**
+	 * Body transfer encoding (AdonisJS `encoding`) — `7bit`, `base64`,
+	 * `quoted-printable`… SMTP only: the provider HTTP APIs encode the payload
+	 * themselves and expose no equivalent.
+	 */
+	encoding(encoding: string): this {
+		this.#msg.encoding = encoding;
+		return this;
+	}
+
+	// ── RFC 2369 List-* headers ───────────────────────────────────────────
+
+	/**
+	 * Define a `List-<key>` header (AdonisJS `addListHeader`). `key` carries no
+	 * `List-` prefix — `addListHeader('archive', url)` emits `List-Archive`.
+	 * Calling it again for the same key replaces the value.
+	 */
+	addListHeader(
+		key: string,
+		value: ListHeader | ListHeader[] | ListHeader[][],
+	): this {
+		this.#msg.list ??= {};
+		this.#msg.list[key] = value;
+		return this;
+	}
+
+	/**
+	 * `List-Unsubscribe` (AdonisJS `listUnsubscribe`).
+	 *
+	 * `{ oneClick: true }` also emits the RFC 8058 `List-Unsubscribe-Post`
+	 * header. Gmail and Yahoo require BOTH for bulk senders, and only a `https:`
+	 * URL is a valid one-click target — a `mailto:` cannot answer a POST, so
+	 * pairing them is refused rather than silently shipped.
+	 */
+	listUnsubscribe(
+		value: ListHeader | ListHeader[] | ListHeader[][],
+		options?: { oneClick?: boolean },
+	): this {
+		if (options?.oneClick === true) {
+			for (const url of listUrls(value)) {
+				if (!url.toLowerCase().startsWith("http")) {
+					throw new RoverError(
+						"INVALID_LIST_HEADER",
+						`listUnsubscribe({ oneClick: true }) needs an https URL that can answer a POST, got "${url}".`,
+						{
+							hint: "Keep the mailto: form without oneClick, or add an https endpoint alongside it.",
+						},
+					);
+				}
+			}
+			// A RAW header, not a `List-*` entry: nodemailer wraps every list value
+			// in angle brackets, and `<List-Unsubscribe=One-Click>` is not what
+			// RFC 8058 specifies — receivers would ignore it.
+			this.#msg.headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
+		}
+		return this.addListHeader("unsubscribe", value);
+	}
+
+	/** `List-Subscribe` (AdonisJS `listSubscribe`). */
+	listSubscribe(value: ListHeader | ListHeader[] | ListHeader[][]): this {
+		return this.addListHeader("subscribe", value);
+	}
+
+	/** `List-Help` (AdonisJS `listHelp`). */
+	listHelp(value: ListHeader | ListHeader[] | ListHeader[][]): this {
+		return this.addListHeader("help", value);
+	}
+
+	// ── Calendar invitations ──────────────────────────────────────────────
+
+	/**
+	 * Attach a calendar invitation from an ICS string (AdonisJS `icalEvent`).
+	 *
+	 * Named deviation: upstream also accepts a `(calendar: ICalCalendar) => void`
+	 * builder, which is `ical-generator`'s API. rover carries no such
+	 * dependency, so it takes the ICS text — produced by whichever generator you
+	 * prefer. {@link icalEventFromFile} and {@link icalEventFromUrl} are the
+	 * other two upstream forms, unchanged.
+	 */
+	icalEvent(contents: string, options?: CalendarEventOptions): this {
+		this.#msg.icalEvent = { ...options, content: contents };
+		return this;
+	}
+
+	/** Calendar invitation read from a file at {@link build} time (AdonisJS `icalEventFromFile`). */
+	icalEventFromFile(file: string | URL, options?: CalendarEventOptions): this {
+		this.#msg.icalEvent = {
+			...options,
+			path: file instanceof URL ? fileURLToPath(file) : file,
+		};
+		return this;
+	}
+
+	/** Calendar invitation the transport fetches from a URL (AdonisJS `icalEventFromUrl`). */
+	icalEventFromUrl(url: string, options?: CalendarEventOptions): this {
+		this.#msg.icalEvent = { ...options, href: url };
 		return this;
 	}
 
@@ -339,6 +698,29 @@ export class MessageBuilder {
 				viewsRoot,
 			);
 			this.#pendingTextView = null;
+		}
+		// Path-based attachments and invitations are read here, not when they were
+		// declared, so the fluent chain stays synchronous. A read failure raises:
+		// an attachment the recipient expects must never ship as an empty part.
+		for (const attachment of this.#msg.attachments) {
+			if (attachment.path === undefined) continue;
+			attachment.content = await readAttachment(
+				attachment.path,
+				attachment.filename,
+			);
+		}
+		const ical = this.#msg.icalEvent;
+		if (ical?.path !== undefined && ical.content === undefined) {
+			ical.content = (
+				await readAttachment(ical.path, "the calendar event")
+			).toString("utf8");
+		}
+		// `List-*` headers are rendered here, once, rather than in each transport:
+		// every transport already forwards `headers`, and only nodemailer has a
+		// structured `list` field. `#msg.list` stays as the structured record the
+		// `hasListHeader` inspection reads.
+		for (const [key, value] of Object.entries(this.#msg.list ?? {})) {
+			this.#msg.headers[`List-${titleCaseKey(key)}`] = renderListHeader(value);
 		}
 		return this.#msg;
 	}

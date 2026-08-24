@@ -5,6 +5,7 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
+import { attachmentsFor } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
@@ -76,8 +77,8 @@ export class ResendTransport implements MailTransport {
 		if (message.replyTo) body.reply_to = stripCrlf(message.replyTo);
 		if (message.html) body.html = message.html;
 		if (message.text) body.text = message.text;
-		if (message.attachments.length > 0) {
-			body.attachments = message.attachments.map((att) => {
+		if (attachmentsFor(message).length > 0) {
+			body.attachments = attachmentsFor(message).map((att) => {
 				const buf = Buffer.from(att.content as Buffer | string);
 				return {
 					filename: stripCrlf(att.filename),

@@ -5,6 +5,7 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
+import { attachmentsFor } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
@@ -104,8 +105,8 @@ export class BrevoTransport implements MailTransport {
 					: stripCrlf(v);
 			}
 		}
-		if (message.attachments.length > 0) {
-			body.attachment = message.attachments.map((att) => ({
+		if (attachmentsFor(message).length > 0) {
+			body.attachment = attachmentsFor(message).map((att) => ({
 				name: stripCrlf(att.filename),
 				content: Buffer.from(att.content as Buffer | string).toString("base64"),
 			}));

@@ -44,7 +44,10 @@ describe("rover > Mail", () => {
 			.subject("Subj")
 			.html("<p>Hi</p>")
 			.text("Hi")
-			.attach("file.txt", "content", "text/plain")
+			.attachData("content", {
+				filename: "file.txt",
+				contentType: "text/plain",
+			})
 			.header("X-Custom", "val");
 
 		const msg = await builder.build();

@@ -257,12 +257,20 @@ export class SmtpTransport implements MailTransport {
 				headers: Object.keys(message.headers).length
 					? message.headers
 					: undefined,
+				encoding: message.encoding,
+				// `list` is NOT passed: `build()` already rendered the `List-*`
+				// headers into `headers`, so handing nodemailer the structured form
+				// too would emit each of them twice.
+				icalEvent: message.icalEvent,
 				attachments: message.attachments.length
 					? message.attachments.map((att) => ({
 							filename: att.filename,
 							content: att.content,
 							contentType: att.contentType,
 							cid: att.cid,
+							contentDisposition: att.contentDisposition,
+							encoding: att.encoding,
+							headers: att.headers,
 						}))
 					: undefined,
 			});
