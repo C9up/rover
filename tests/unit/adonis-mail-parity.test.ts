@@ -188,3 +188,40 @@ describe("rover > message body and envelope", () => {
 		expect(message.from).toContain("newsletter@acme.test");
 	});
 });
+
+describe("rover > hasRecipient takes the field first (AdonisJS shape)", () => {
+	function built() {
+		const m = new MessageBuilder();
+		m.to("ada@acme.test", "Ada").cc("cc@acme.test").replyTo("reply@acme.test");
+		return m;
+	}
+
+	it("checks one named field", () => {
+		const m = built();
+		expect(m.hasRecipient("to", "ada@acme.test")).toBe(true);
+		expect(m.hasRecipient("cc", "cc@acme.test")).toBe(true);
+		expect(m.hasRecipient("replyTo", "reply@acme.test")).toBe(true);
+	});
+
+	it("does not find an address in a field it is not in", () => {
+		// It used to take the address alone and search every field, so
+		// `hasRecipient('to', addr)` asked whether "to" was a recipient and
+		// quietly answered false.
+		const m = built();
+		expect(m.hasRecipient("bcc", "ada@acme.test")).toBe(false);
+		expect(m.hasRecipient("cc", "ada@acme.test")).toBe(false);
+	});
+
+	it("matches the display name when one is given", () => {
+		const m = built();
+		expect(m.hasRecipient("to", "ada@acme.test", "Ada")).toBe(true);
+		expect(m.hasRecipient("to", "ada@acme.test", "Grace")).toBe(false);
+	});
+
+	it("hasAnyRecipient is the any-field question", () => {
+		const m = built();
+		expect(m.hasAnyRecipient("cc@acme.test")).toBe(true);
+		expect(m.hasAnyRecipient("nobody@acme.test")).toBe(false);
+		expect(m.hasAnyRecipient()).toBe(true);
+	});
+});

@@ -115,8 +115,19 @@ export interface RecipientObject {
 export type Recipient = string | RecipientObject;
 
 /** Whether `list` holds `address`, or anything at all when it is omitted. */
-function contains(list: readonly string[], address?: string): boolean {
+function contains(
+	list: readonly string[],
+	address?: string,
+	name?: string,
+): boolean {
 	if (address === undefined) return list.length > 0;
+	// With a name, both halves must match — the entry was stored through
+	// `formatAddress`, so rebuilding it is the exact comparison (AdonisJS
+	// checks address AND name the same way).
+	if (name !== undefined) {
+		const formatted = formatAddress(address, name);
+		return list.some((entry) => entry === formatted);
+	}
 	// Addresses are stored formatted (`"Name" <a@b.c>`), so an assertion on the
 	// bare address has to match inside the display form too.
 	return list.some(
@@ -281,20 +292,24 @@ export class MessageBuilder {
 	// `has*` answers, `assert*` throws. Both exist because a test reads better
 	// as an assertion and a conditional reads better as a question.
 
-	hasTo(address?: string): boolean {
-		return contains(this.#msg.to, address);
+	hasTo(address?: string, name?: string): boolean {
+		return contains(this.#msg.to, address, name);
 	}
-	hasCc(address?: string): boolean {
-		return contains(this.#msg.cc, address);
+	hasCc(address?: string, name?: string): boolean {
+		return contains(this.#msg.cc, address, name);
 	}
-	hasBcc(address?: string): boolean {
-		return contains(this.#msg.bcc, address);
+	hasBcc(address?: string, name?: string): boolean {
+		return contains(this.#msg.bcc, address, name);
 	}
-	hasFrom(address?: string): boolean {
-		return contains(this.#msg.from ? [this.#msg.from] : [], address);
+	hasFrom(address?: string, name?: string): boolean {
+		return contains(this.#msg.from ? [this.#msg.from] : [], address, name);
 	}
-	hasReplyTo(address?: string): boolean {
-		return contains(this.#msg.replyTo ? [this.#msg.replyTo] : [], address);
+	hasReplyTo(address?: string, name?: string): boolean {
+		return contains(
+			this.#msg.replyTo ? [this.#msg.replyTo] : [],
+			address,
+			name,
+		);
 	}
 	hasSubject(subject?: string): boolean {
 		if (subject === undefined) return this.#msg.subject !== "";
@@ -317,11 +332,42 @@ export class MessageBuilder {
 	}
 
 	/**
-	 * Whether `address` is a recipient in ANY field (AdonisJS `hasRecipient`).
-	 * Without one, whether the message has a recipient at all.
+	 * Whether `address` appears in ONE named field (AdonisJS `hasRecipient`).
+	 *
+	 * The field comes first, as upstream: `hasRecipient('to', 'a@b.c')`. It used
+	 * to take the address alone and search every field, so a migrated
+	 * `hasRecipient('to', addr)` asked whether `'to'` was a recipient and quietly
+	 * answered false — the worst possible outcome inside a test assertion.
+	 * {@link hasAnyRecipient} is the any-field question under a name that says so.
 	 */
-	hasRecipient(address?: string): boolean {
-		return this.hasTo(address) || this.hasCc(address) || this.hasBcc(address);
+	hasRecipient(
+		property: "to" | "cc" | "bcc" | "replyTo",
+		address: string,
+		name?: string,
+	): boolean {
+		switch (property) {
+			case "to":
+				return this.hasTo(address, name);
+			case "cc":
+				return this.hasCc(address, name);
+			case "bcc":
+				return this.hasBcc(address, name);
+			case "replyTo":
+				return this.hasReplyTo(address, name);
+		}
+	}
+
+	/**
+	 * Whether `address` is a recipient in any of `to` / `cc` / `bcc`. Without
+	 * one, whether the message has a recipient at all. Ream's own, since
+	 * "does this reach them" is the question an assertion usually asks.
+	 */
+	hasAnyRecipient(address?: string, name?: string): boolean {
+		return (
+			this.hasTo(address, name) ||
+			this.hasCc(address, name) ||
+			this.hasBcc(address, name)
+		);
 	}
 
 	/**
@@ -390,7 +436,7 @@ export class MessageBuilder {
 
 	/** `address` is a recipient in some field (AdonisJS `assertRecipient`). */
 	assertRecipient(address: string): void {
-		expect(this.hasRecipient(address), `to reach "${address}"`, {
+		expect(this.hasAnyRecipient(address), `to reach "${address}"`, {
 			to: this.#msg.to,
 			cc: this.#msg.cc,
 			bcc: this.#msg.bcc,

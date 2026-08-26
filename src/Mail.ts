@@ -662,12 +662,6 @@ export class Mail {
 		}
 	}
 
-	async #buildMessage(
-		arg: ((message: MessageBuilder) => void) | BaseMail,
-	): Promise<MailMessage> {
-		return (await this.#buildMessageWithViews(arg)).message;
-	}
-
 	/**
 	 * Build the message AND report which templates it was rendered from, since
 	 * every lifecycle event carries both (AdonisJS `message` + `views`).

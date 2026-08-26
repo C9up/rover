@@ -200,11 +200,23 @@ describe("rover > generic inspection", () => {
 	it("answers on any recipient field", () => {
 		const m = message().cc("e@f.co").bcc("g@h.co");
 
-		expect(m.hasRecipient("c@d.co")).toBe(true);
-		expect(m.hasRecipient("e@f.co")).toBe(true);
-		expect(m.hasRecipient("g@h.co")).toBe(true);
-		expect(m.hasRecipient("nobody@x.co")).toBe(false);
+		// `hasRecipient` now takes the field first, as AdonisJS does; the
+		// any-field question moved to `hasAnyRecipient`, which is what this
+		// test was always asking.
+		expect(m.hasAnyRecipient("c@d.co")).toBe(true);
+		expect(m.hasAnyRecipient("e@f.co")).toBe(true);
+		expect(m.hasAnyRecipient("g@h.co")).toBe(true);
+		expect(m.hasAnyRecipient("nobody@x.co")).toBe(false);
 		expect(() => m.assertRecipient("nobody@x.co")).toThrow();
+	});
+
+	it("answers on one named field, as AdonisJS does", () => {
+		const m = message().cc("e@f.co").bcc("g@h.co");
+
+		expect(m.hasRecipient("cc", "e@f.co")).toBe(true);
+		expect(m.hasRecipient("bcc", "g@h.co")).toBe(true);
+		// The distinction the old signature could not express.
+		expect(m.hasRecipient("to", "e@f.co")).toBe(false);
 	});
 
 	it("looks for content in either body", () => {
