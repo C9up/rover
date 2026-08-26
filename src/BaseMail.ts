@@ -36,6 +36,19 @@ export abstract class BaseMail {
 	replyTo?: MailAddress;
 	subject?: string;
 
+	/**
+	 * Whether {@link build} has already run (AdonisJS `built`).
+	 *
+	 * Without it, building twice replayed `prepare()` against the SAME
+	 * `MessageBuilder`, so every recipient and every attachment was added
+	 * again — a mail asserted on with `buildWithContents()` and then sent went
+	 * out twice to the same address, with the attachment doubled. Building
+	 * twice is ordinary: inspect then send, or retry a send at the app level.
+	 */
+	built = false;
+	/** The message the first build produced, returned by every later call. */
+	#builtMessage?: MailMessage;
+
 	constructor() {
 		if (new.target === BaseMail) {
 			throw new Error(
@@ -73,6 +86,10 @@ export abstract class BaseMail {
 	}
 
 	async build(viewsRoot?: string): Promise<MailMessage> {
+		if (this.built && this.#builtMessage !== undefined) {
+			return this.#builtMessage;
+		}
+		this.built = true;
 		if (this.from !== undefined) {
 			applyAddress(this.from, (address, name) =>
 				this.message.from(address, name),
@@ -89,7 +106,8 @@ export abstract class BaseMail {
 		await this.prepare();
 		// Forward the owning Mail's per-instance viewsRoot so template
 		// resolution doesn't depend on the process-wide mutable global.
-		return this.message.build(viewsRoot);
+		this.#builtMessage = await this.message.build(viewsRoot);
+		return this.#builtMessage;
 	}
 }
 

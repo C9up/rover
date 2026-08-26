@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	type EmitterLike,
@@ -179,5 +182,84 @@ describe("rover > delivery events", () => {
 		await expect(
 			mail.send((m) => m.to("u@x.com").subject("Hi")),
 		).resolves.toBeUndefined();
+	});
+});
+
+describe("rover > mail events carry the AdonisJS triple", () => {
+	it("names the mailer and carries the message itself", async () => {
+		const emitter = new SpyEmitter();
+		const mail = makeMail("triple-1", new PassTransport(), emitter);
+
+		await mail.send((m) => m.to("a@b.c").subject("Hi").html("<p>hi</p>"));
+
+		const sent = emitter.events.find((e) => e.name === "mail:sent")?.data as
+			| Record<string, unknown>
+			| undefined;
+		// A listener migrated from @adonisjs/mail reads `message` and
+		// `mailerName`; both used to be absent, leaving it with undefined.
+		expect(sent?.mailerName).toBe("log");
+		expect((sent?.message as { subject?: string }).subject).toBe("Hi");
+		// rover's own name for the same string stays, so existing listeners keep
+		// working.
+		expect(sent?.transportName).toBe("log");
+	});
+
+	it("reports an empty views bag for a message built without a template", async () => {
+		const emitter = new SpyEmitter();
+		const mail = makeMail("triple-2", new PassTransport(), emitter);
+
+		await mail.send((m) => m.to("a@b.c").subject("Hi").html("<p>hi</p>"));
+
+		const sending = emitter.events.find((e) => e.name === "mail:sending")
+			?.data as Record<string, unknown> | undefined;
+		expect(sending?.views).toEqual({});
+	});
+
+	it("carries the same shape on the queue lifecycle", async () => {
+		const emitter = new SpyEmitter();
+		const mail = makeMail("triple-3", new PassTransport(), emitter);
+
+		await mail.sendLater((m) =>
+			m.to("a@b.c").subject("Later").html("<p>hi</p>"),
+		);
+
+		const queued = emitter.events.find((e) => e.name === "mail:queued")?.data as
+			| Record<string, unknown>
+			| undefined;
+		expect(queued?.mailerName).toBe("log");
+		expect((queued?.message as { subject?: string }).subject).toBe("Later");
+	});
+
+	it("names the template a message was rendered from", async () => {
+		// A real views root: `build()` renders the template, and until now it
+		// then cleared the pending view, so the template that produced the body
+		// was gone by the time the event fired.
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "rover-views-"));
+		fs.writeFileSync(path.join(root, "welcome.html"), "<p>{{ name }}</p>");
+
+		const emitter = new SpyEmitter();
+		registerTransport("triple-4", () => new PassTransport());
+		const mail = new Mail(
+			{
+				default: "log",
+				from: "default@example.com",
+				viewsRoot: root,
+				transports: { log: { transport: "triple-4" } },
+				retry: { maxAttempts: 1, baseDelayMs: 10, factor: 1 },
+			},
+			{ emitter },
+		);
+
+		await mail.send((m) =>
+			m.to("a@b.c").subject("Hi").htmlView("welcome", { name: "Ada" }),
+		);
+
+		const sent = emitter.events.find((e) => e.name === "mail:sent")?.data as
+			| Record<string, unknown>
+			| undefined;
+		expect(sent?.views).toEqual({
+			html: { template: "welcome", data: { name: "Ada" } },
+		});
+		fs.rmSync(root, { recursive: true, force: true });
 	});
 });

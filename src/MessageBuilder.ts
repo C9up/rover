@@ -208,6 +208,15 @@ function expect(passed: boolean, expectation: string, actual: unknown): void {
 	);
 }
 
+/**
+ * Which templates a message was rendered from — AdonisJS
+ * `MessageBodyTemplates`, carried on every mail lifecycle event.
+ */
+export interface MessageBodyTemplates {
+	html?: { template: string; data: Record<string, unknown> };
+	text?: { template: string; data: Record<string, unknown> };
+}
+
 export class MessageBuilder {
 	#msg: MailMessage = {
 		from: "",
@@ -219,6 +228,13 @@ export class MessageBuilder {
 		headers: {},
 	};
 	#pendingView: { path: string; data: Record<string, unknown> } | null = null;
+	/**
+	 * The templates {@link build} actually rendered. Recorded because `build()`
+	 * clears the pending views once they are rendered, and the lifecycle events
+	 * carry them (AdonisJS `views`, the third field of every mail event) — an
+	 * app logging a send wants to know which template produced it.
+	 */
+	#renderedViews: MessageBodyTemplates = {};
 	#pendingTextView: { path: string; data: Record<string, unknown> } | null =
 		null;
 
@@ -674,6 +690,11 @@ export class MessageBuilder {
 		return this;
 	}
 
+	/** The templates {@link build} rendered, for the lifecycle events. */
+	get views(): MessageBodyTemplates {
+		return { ...this.#renderedViews };
+	}
+
 	/**
 	 * Finalise the message. `viewsRoot`, when provided by the owning `Mail`,
 	 * scopes template resolution to that instance's configured root instead of
@@ -682,6 +703,10 @@ export class MessageBuilder {
 	 */
 	async build(viewsRoot?: string): Promise<MailMessage> {
 		if (this.#pendingView !== null) {
+			this.#renderedViews.html = {
+				template: this.#pendingView.path,
+				data: this.#pendingView.data,
+			};
 			this.#msg.html = await renderTemplateFile(
 				this.#pendingView.path,
 				this.#pendingView.data,
@@ -691,6 +716,10 @@ export class MessageBuilder {
 			this.#pendingView = null;
 		}
 		if (this.#pendingTextView !== null) {
+			this.#renderedViews.text = {
+				template: this.#pendingTextView.path,
+				data: this.#pendingTextView.data,
+			};
 			this.#msg.text = await renderTemplateFile(
 				this.#pendingTextView.path,
 				this.#pendingTextView.data,

@@ -15,6 +15,7 @@ export type {
 	EmitterLike,
 	MailAttachment,
 	MailConfig,
+	MailEventBase,
 	MailFailedEvent,
 	MailHooks,
 	MailMessage,
@@ -25,6 +26,7 @@ export type {
 	MailSentEvent,
 	MailTransport,
 	MailTransportFactory,
+	MessageBodyTemplates,
 } from "./Mail.js";
 export {
 	LogTransport,

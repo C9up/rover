@@ -453,3 +453,58 @@ describe("rover > BaseMail", () => {
 		expect(spy.sent).toHaveLength(0);
 	});
 });
+
+describe("rover > BaseMail builds once (AdonisJS `built` guard)", () => {
+	class Welcome extends BaseMail {
+		subject = "Hi";
+		prepare() {
+			this.message
+				.to("a@b.c")
+				.from("x@y.z")
+				.attachData("body", { filename: "n.txt" });
+		}
+	}
+
+	it("does not replay prepare() on a second build", async () => {
+		const mail = new Welcome();
+		await mail.buildWithContents();
+		const again = await mail.build();
+
+		// prepare() ran against the same builder both times, so every recipient
+		// and every attachment was added twice: inspecting a mail and then
+		// sending it delivered it twice to the same address.
+		expect(again.to).toEqual(["a@b.c"]);
+		expect(again.attachments?.length ?? 0).toBe(1);
+	});
+
+	it("hands back the same message it built the first time", async () => {
+		const mail = new Welcome();
+		const first = await mail.build();
+		const second = await mail.build();
+
+		expect(second).toBe(first);
+	});
+
+	it("reports whether it has been built", async () => {
+		const mail = new Welcome();
+		expect(mail.built).toBe(false);
+		await mail.build();
+		expect(mail.built).toBe(true);
+	});
+
+	it("survives being sent twice", async () => {
+		const mail = new Welcome();
+		const sent: Array<{ to: string[] }> = [];
+		const mailer = {
+			async send(m: BaseMail) {
+				sent.push({ to: (await m.build()).to.slice() });
+			},
+			async sendLater() {},
+		};
+
+		await mail.send(mailer);
+		await mail.send(mailer);
+
+		expect(sent.map((s) => s.to)).toEqual([["a@b.c"], ["a@b.c"]]);
+	});
+});

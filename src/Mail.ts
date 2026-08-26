@@ -4,6 +4,7 @@ import { BaseMail } from "./BaseMail.js";
 import {
 	type MailAttachment,
 	type MailMessage,
+	type MessageBodyTemplates,
 	MessageBuilder,
 } from "./MessageBuilder.js";
 import {
@@ -75,24 +76,40 @@ export interface EmitterLike {
 }
 
 /**
- * Emitted (`mail:sending`) right before the transport `send` runs — no
- * `messageId` yet, since the provider hasn't accepted the message.
+ * What every mail lifecycle event carries, matching `@adonisjs/mail`:
+ * the mailer that handled it, the message itself, and the templates it was
+ * rendered from. A listener migrating over reads `message.to` / `views.html`.
+ *
+ * `transportName` and the flattened recipient lists are rover's own and stay:
+ * the transport name is the same string as `mailerName` under the name rover
+ * used first, and a listener that only wants the addresses should not have to
+ * reach into the message for them.
  */
-export interface MailSendingEvent {
+export type { MessageBodyTemplates };
+
+export interface MailEventBase {
+	/** AdonisJS name for the mailer that handled the message. */
+	mailerName: string;
+	/** The built message. */
+	message: MailMessage;
+	/** Templates the message was rendered from, empty when it carried none. */
+	views: MessageBodyTemplates;
 	to: string[];
 	cc: string[];
 	bcc: string[];
+	/** rover's original name for {@link MailEventBase.mailerName}. */
 	transportName: string;
 	timestamp: number;
 }
 
-export interface MailSentEvent {
+/**
+ * Emitted (`mail:sending`) right before the transport `send` runs — no
+ * `messageId` yet, since the provider hasn't accepted the message.
+ */
+export interface MailSendingEvent extends MailEventBase {}
+
+export interface MailSentEvent extends MailEventBase {
 	messageId: string;
-	to: string[];
-	cc: string[];
-	bcc: string[];
-	transportName: string;
-	timestamp: number;
 }
 
 /**
@@ -100,22 +117,13 @@ export interface MailSentEvent {
  * only present on `mail:queued` (once the job has been accepted by the queue /
  * in-memory messenger).
  */
-export interface MailQueueEvent {
-	to: string[];
-	cc: string[];
-	bcc: string[];
-	transportName: string;
+export interface MailQueueEvent extends MailEventBase {
 	queue: string;
 	jobId?: string;
-	timestamp: number;
 }
 
-export interface MailFailedEvent {
+export interface MailFailedEvent extends MailEventBase {
 	messageId: string;
-	to: string[];
-	cc: string[];
-	bcc: string[];
-	transportName: string;
 	error: {
 		code: string;
 		message: string;
@@ -123,7 +131,6 @@ export interface MailFailedEvent {
 		upstreamStatusRaw?: string;
 		attempts: number;
 	};
-	timestamp: number;
 }
 
 export interface MailConfig {
@@ -449,15 +456,9 @@ export class Mail {
 		// BaseMail, for constructor-based assertions) instead of touching a
 		// transport. Still fire the send lifecycle so event wiring stays testable.
 		if (this.#fake !== null) {
-			const message = await this.#buildMessage(arg);
+			const { message, views } = await this.#buildMessageWithViews(arg);
 			this.#fake.trackSent(message, arg instanceof BaseMail ? arg : undefined);
-			const base = {
-				to: message.to.slice(),
-				cc: message.cc.slice(),
-				bcc: message.bcc.slice(),
-				transportName,
-				timestamp: Date.now(),
-			};
+			const base = this.#eventBase(message, views, transportName);
 			this.#fireSending(base);
 			this.#fireSent({ ...base, messageId: randomBytes(16).toString("hex") });
 			return;
@@ -467,8 +468,8 @@ export class Mail {
 			throw new Error(`Mail transport '${transportName}' not configured`);
 		}
 
-		const message = await this.#buildMessage(arg);
-		await this.dispatchMessage(message, transportName);
+		const { message, views } = await this.#buildMessageWithViews(arg);
+		await this.dispatchMessage(message, transportName, undefined, views);
 	}
 
 	/**
@@ -481,16 +482,12 @@ export class Mail {
 		arg: ((message: MessageBuilder) => void) | BaseMail,
 		options?: { transport?: string; queue?: string },
 	): Promise<string> {
-		const message = await this.#buildMessage(arg);
+		const { message, views } = await this.#buildMessageWithViews(arg);
 		const queueName = options?.queue ?? this.#queueName;
 		const transportName = options?.transport ?? this.#defaultTransport;
 		const base: MailQueueEvent = {
-			to: message.to.slice(),
-			cc: message.cc.slice(),
-			bcc: message.bcc.slice(),
-			transportName,
+			...this.#eventBase(message, views, transportName),
 			queue: queueName,
-			timestamp: Date.now(),
 		};
 
 		// Fake mode: capture into the queued bucket, don't dispatch.
@@ -530,6 +527,11 @@ export class Mail {
 		message: MailMessage,
 		transportName?: string,
 		overrideRetry?: RetryConfig,
+		// The templates the message came from, when the caller still knows them.
+		// A message revived from a queue payload does not: the rendered bodies
+		// were serialised, the templates that produced them were not. Empty is
+		// the honest answer there rather than a guess.
+		views: MessageBodyTemplates = {},
 	): Promise<void> {
 		// Defense-in-depth: queue payloads bypass `#buildMessage`, so a
 		// malformed message deserialised from storage would otherwise reach
@@ -550,13 +552,7 @@ export class Mail {
 
 		// Fire once before the first attempt — `mail:sending` signals intent, not
 		// per-retry, matching @adonisjs/mail.
-		this.#fireSending({
-			to: message.to.slice(),
-			cc: message.cc.slice(),
-			bcc: message.bcc.slice(),
-			transportName: name,
-			timestamp: Date.now(),
-		});
+		this.#fireSending(this.#eventBase(message, views, name));
 
 		for (let attempt = 1; attempt <= retry.maxAttempts; attempt += 1) {
 			let sendResult: MailSendOutcome;
@@ -568,13 +564,9 @@ export class Mail {
 				if (!retryable || attempt === retry.maxAttempts) {
 					const annotated = this.#withAttempts(err, attempt);
 					this.#fireFailed({
+						...this.#eventBase(message, views, name),
 						messageId: generatedId,
-						to: message.to.slice(),
-						cc: message.cc.slice(),
-						bcc: message.bcc.slice(),
-						transportName: name,
 						error: errorDescriptor(annotated, attempt),
-						timestamp: Date.now(),
 					});
 					throw annotated;
 				}
@@ -596,12 +588,8 @@ export class Mail {
 			const providerId =
 				providerIdRaw && providerIdRaw.length > 0 ? providerIdRaw : undefined;
 			this.#fireSent({
+				...this.#eventBase(message, views, name),
 				messageId: providerId ?? generatedId,
-				to: message.to.slice(),
-				cc: message.cc.slice(),
-				bcc: message.bcc.slice(),
-				transportName: name,
-				timestamp: Date.now(),
 			});
 			return;
 		}
@@ -677,18 +665,52 @@ export class Mail {
 	async #buildMessage(
 		arg: ((message: MessageBuilder) => void) | BaseMail,
 	): Promise<MailMessage> {
+		return (await this.#buildMessageWithViews(arg)).message;
+	}
+
+	/**
+	 * Build the message AND report which templates it was rendered from, since
+	 * every lifecycle event carries both (AdonisJS `message` + `views`).
+	 */
+	async #buildMessageWithViews(
+		arg: ((message: MessageBuilder) => void) | BaseMail,
+	): Promise<{ message: MailMessage; views: MessageBodyTemplates }> {
 		let result: MailMessage;
+		let views: MessageBodyTemplates;
 		if (arg instanceof BaseMail) {
 			const built = await arg.build(this.#viewsRoot);
 			result = built.from ? built : { ...built, from: this.#defaultFrom };
+			views = arg.message.views;
 		} else {
 			const builder = new MessageBuilder();
 			builder.from(this.#defaultFrom);
 			arg(builder);
 			result = await builder.build(this.#viewsRoot);
+			views = builder.views;
 		}
 		validateMailMessage(result);
-		return result;
+		return { message: result, views };
+	}
+
+	/**
+	 * The fields every lifecycle event shares. One place, so `mail:sending` and
+	 * `mail:sent` cannot describe the same message differently.
+	 */
+	#eventBase(
+		message: MailMessage,
+		views: MessageBodyTemplates,
+		mailerName: string,
+	): MailEventBase {
+		return {
+			mailerName,
+			message,
+			views,
+			to: message.to.slice(),
+			cc: message.cc.slice(),
+			bcc: message.bcc.slice(),
+			transportName: mailerName,
+			timestamp: Date.now(),
+		};
 	}
 
 	/**
