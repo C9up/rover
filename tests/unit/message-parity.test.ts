@@ -17,7 +17,11 @@ import { pathToFileURL } from "node:url";
 
 import { afterAll, describe, expect, it } from "vitest";
 
-import { attachmentsFor, MessageBuilder } from "../../src/index.js";
+import {
+	attachmentsFor,
+	headerValue,
+	MessageBuilder,
+} from "../../src/index.js";
 
 const dir = mkdtempSync(join(tmpdir(), "rover-msg-"));
 const invoice = join(dir, "invoice.pdf");
@@ -232,5 +236,43 @@ describe("rover > generic inspection", () => {
 		const built = await message().encoding("base64").build();
 
 		expect(built.encoding).toBe("base64");
+	});
+});
+
+describe("rover > watch body and prepared headers", () => {
+	it("writes the field nodemailer actually reads", async () => {
+		const built = await message().watch("<p>on the wrist</p>").build();
+
+		// AdonisJS writes a bare `watch` field, which nodemailer's mail composer
+		// never reads (lib/mail-composer/index.js only looks at `watchHtml`), so
+		// upstream's watch body never reaches the wire.
+		expect(built.watchHtml).toBe("<p>on the wrist</p>");
+	});
+
+	it("watchHtml() is the same method under the field's own name", async () => {
+		const built = await message().watchHtml("<p>x</p>").build();
+		expect(built.watchHtml).toBe("<p>x</p>");
+	});
+
+	it("marks a prepared header so it is not re-encoded", async () => {
+		const built = await message()
+			.header("X-Plain", "value")
+			.preparedHeader("X-Signature", "a=b; c=d")
+			.build();
+
+		expect(built.headers["X-Plain"]).toBe("value");
+		expect(built.headers["X-Signature"]).toEqual({
+			prepared: true,
+			value: "a=b; c=d",
+		});
+	});
+
+	it("flattens a prepared header for the HTTP-API transports", () => {
+		// "Prepared" is a nodemailer notion: a provider REST API takes a JSON
+		// string and does no MIME encoding, so sending the wrapper object would
+		// put `[object Object]` on the wire.
+		expect(headerValue({ prepared: true, value: "a=b" })).toBe("a=b");
+		expect(headerValue("plain")).toBe("plain");
+		expect(headerValue(["a", "b"])).toEqual(["a", "b"]);
 	});
 });

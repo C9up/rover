@@ -7,7 +7,7 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
-import { attachmentsFor } from "../MessageBuilder.js";
+import { attachmentsFor, headerValue } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
@@ -128,7 +128,8 @@ export class MailgunTransport implements MailTransport {
 		if (message.text) data.text = message.text;
 		if (message.html) data.html = message.html;
 		if (message.replyTo) data["h:Reply-To"] = stripCrlf(message.replyTo);
-		for (const [k, v] of Object.entries(message.headers)) {
+		for (const [k, raw] of Object.entries(message.headers)) {
+			const v = headerValue(raw);
 			data[`h:${stripCrlf(k)}`] = Array.isArray(v)
 				? v.map(stripCrlf).join(", ")
 				: stripCrlf(v);

@@ -5,6 +5,33 @@ import { formatAddress } from "./format.js";
 import { RoverError } from "./RoverError.js";
 import { renderFile as renderTemplateFile } from "./templating/SimpleTemplate.js";
 
+/**
+ * A header nodemailer must pass through untouched (`{ prepared: true }`).
+ *
+ * Normal headers get re-encoded — folded, MIME-encoded when non-ASCII. A value
+ * that is already exactly what must go on the wire (a signature, a
+ * pre-encoded id) has to say so, or the encoding corrupts it.
+ */
+export interface PreparedHeader {
+	prepared: true;
+	value: string;
+}
+
+/**
+ * A header value as a plain string, for the HTTP-API transports.
+ *
+ * "Prepared" is a nodemailer notion — it tells its MIME encoder to leave the
+ * value alone. A provider REST API takes a JSON string and does no MIME
+ * encoding, so the flag has nothing to say there; sending the wrapper object
+ * would put `[object Object]` on the wire.
+ */
+export function headerValue(
+	value: string | string[] | PreparedHeader,
+): string | string[] {
+	if (Array.isArray(value) || typeof value === "string") return value;
+	return value.value;
+}
+
 export interface MailMessage {
 	from: string;
 	to: string[];
@@ -14,8 +41,13 @@ export interface MailMessage {
 	subject: string;
 	html?: string;
 	text?: string;
+	/**
+	 * The Apple Watch body (nodemailer `watchHtml`). A stripped-down HTML part
+	 * a watch renders instead of the full one.
+	 */
+	watchHtml?: string;
 	attachments: MailAttachment[];
-	headers: Record<string, string | string[]>;
+	headers: Record<string, string | string[] | PreparedHeader>;
 	/** Email priority hint (nodemailer `priority`). */
 	priority?: "low" | "normal" | "high";
 	/** Custom `Message-ID` header (threading / idempotency). */
@@ -511,6 +543,24 @@ export class MessageBuilder {
 		this.#msg.html = content;
 		return this;
 	}
+
+	/**
+	 * The Apple Watch body (AdonisJS `watch`).
+	 *
+	 * NAMED DEVIATION — this writes nodemailer's `watchHtml`. AdonisJS writes a
+	 * bare `watch` field, which nodemailer's mail composer never reads
+	 * (lib/mail-composer/index.js only looks at `watchHtml`), so upstream's
+	 * watch body never reaches the wire. {@link watchHtml} is the same method
+	 * under the field's own name.
+	 */
+	watch(content: string): this {
+		return this.watchHtml(content);
+	}
+
+	watchHtml(content: string): this {
+		this.#msg.watchHtml = content;
+		return this;
+	}
 	text(content: string): this {
 		this.#msg.text = content;
 		return this;
@@ -624,6 +674,17 @@ export class MessageBuilder {
 
 	header(key: string, value: string | string[]): this {
 		this.#msg.headers[key] = value;
+		return this;
+	}
+
+	/**
+	 * A header nodemailer passes through untouched (AdonisJS `preparedHeader`).
+	 *
+	 * Use it when the value IS what must appear on the wire and re-encoding
+	 * would corrupt it — a signature, an already-encoded message id.
+	 */
+	preparedHeader(key: string, value: string): this {
+		this.#msg.headers[key] = { prepared: true, value };
 		return this;
 	}
 

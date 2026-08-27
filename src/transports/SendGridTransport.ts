@@ -8,7 +8,7 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
-import { attachmentsFor } from "../MessageBuilder.js";
+import { attachmentsFor, headerValue } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
@@ -91,10 +91,13 @@ export class SendGridTransport implements MailTransport {
 			...(Object.keys(message.headers).length
 				? {
 						headers: Object.fromEntries(
-							Object.entries(message.headers).map(([k, v]) => [
-								stripCrlf(k),
-								Array.isArray(v) ? v.map(stripCrlf).join(", ") : stripCrlf(v),
-							]),
+							Object.entries(message.headers).map(([k, raw]) => {
+								const v = headerValue(raw);
+								return [
+									stripCrlf(k),
+									Array.isArray(v) ? v.map(stripCrlf).join(", ") : stripCrlf(v),
+								];
+							}),
 						),
 					}
 				: {}),

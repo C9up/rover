@@ -257,6 +257,10 @@ export class SmtpTransport implements MailTransport {
 				subject: message.subject,
 				html: message.html,
 				text: message.text,
+				// nodemailer reads `watchHtml`; there is no bare `watch` field in
+				// its mail composer, so writing one — as AdonisJS does — never
+				// reaches the wire.
+				watchHtml: message.watchHtml,
 				priority: message.priority,
 				messageId: message.messageId,
 				inReplyTo: message.inReplyTo,

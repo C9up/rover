@@ -5,7 +5,7 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
-import { attachmentsFor } from "../MessageBuilder.js";
+import { attachmentsFor, headerValue } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
@@ -92,7 +92,8 @@ export class ResendTransport implements MailTransport {
 		const customHeaders = Object.entries(message.headers);
 		if (customHeaders.length > 0) {
 			body.headers = {};
-			for (const [k, v] of customHeaders) {
+			for (const [k, raw] of customHeaders) {
+				const v = headerValue(raw);
 				body.headers[stripCrlf(k)] = Array.isArray(v)
 					? v.map(stripCrlf).join(", ")
 					: stripCrlf(v);

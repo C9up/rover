@@ -5,7 +5,7 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
-import { attachmentsFor } from "../MessageBuilder.js";
+import { attachmentsFor, headerValue } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
@@ -103,7 +103,8 @@ export class SparkPostTransport implements MailTransport {
 		if (message.text) body.content.text = message.text;
 		if (message.replyTo) body.content.reply_to = stripCrlf(message.replyTo);
 		const headers: Record<string, string> = {};
-		for (const [k, v] of Object.entries(message.headers)) {
+		for (const [k, raw] of Object.entries(message.headers)) {
+			const v = headerValue(raw);
 			headers[stripCrlf(k)] = Array.isArray(v)
 				? v.map(stripCrlf).join(", ")
 				: stripCrlf(v);

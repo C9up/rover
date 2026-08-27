@@ -281,10 +281,17 @@ function buildRawMime(message: MailMessage): string {
 		"content-transfer-encoding",
 		"content-disposition",
 	]);
-	for (const [k, v] of Object.entries(message.headers)) {
+	for (const [k, raw] of Object.entries(message.headers)) {
 		if (reserved.has(k.toLowerCase())) continue;
+		// A PREPARED header is the one case the flag actually decides: this
+		// builds raw MIME, and re-encoding a value that is already exactly what
+		// must go on the wire — a signature, a pre-encoded id — corrupts it.
+		if (!Array.isArray(raw) && typeof raw !== "string") {
+			parts.push(`${stripCrlf(k)}: ${stripCrlf(raw.value)}`);
+			continue;
+		}
 		parts.push(
-			`${stripCrlf(k)}: ${encodeHeaderWord(Array.isArray(v) ? v.join(", ") : v)}`,
+			`${stripCrlf(k)}: ${encodeHeaderWord(Array.isArray(raw) ? raw.join(", ") : raw)}`,
 		);
 	}
 
