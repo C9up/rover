@@ -263,3 +263,58 @@ describe("rover > mail events carry the AdonisJS triple", () => {
 		fs.rmSync(root, { recursive: true, force: true });
 	});
 });
+
+describe("rover > setMessenger wires a queue after construction", () => {
+	/** The narrow shape rover asks of a queue — no @c9up/bay needed. */
+	class FakeQueue {
+		handlers = new Map<string, { handle(payload: unknown): Promise<void> }>();
+		dispatched: Array<{ name: string; payload: unknown }> = [];
+
+		register(
+			name: string,
+			handler: { handle(payload: unknown): Promise<void> },
+		) {
+			this.handlers.set(name, handler);
+		}
+
+		async dispatch(name: string, payload: unknown): Promise<string> {
+			this.dispatched.push({ name, payload });
+			return "job-1";
+		}
+
+		async drain(): Promise<void> {
+			for (const { name, payload } of this.dispatched.splice(0)) {
+				await this.handlers.get(name)?.handle(payload);
+			}
+		}
+	}
+
+	it("routes sendLater() through a queue handed over after construction", async () => {
+		const transport = new PassTransport();
+		const mail = makeMail("late-messenger", transport); // no queue at construction
+		const queue = new FakeQueue();
+
+		// A queue is often resolved later than the mailer — a provider that boots
+		// after this one, a test that swaps it. The constructor was the only way
+		// in, so a migrated `mail.setMessenger(queue)` stopped at a TypeError.
+		expect(mail.setMessenger(queue)).toBe(mail);
+
+		await mail.sendLater((m) =>
+			m.to("a@b.c").subject("Later").html("<p>x</p>"),
+		);
+
+		expect(queue.dispatched).toHaveLength(1);
+		await queue.drain();
+	});
+
+	it("registers the mail job handler on the queue it is given", () => {
+		const mail = makeMail("late-messenger-2", new PassTransport());
+		const queue = new FakeQueue();
+
+		mail.setMessenger(queue);
+
+		// Without the registration the dispatch above would enqueue a job
+		// nothing knows how to run.
+		expect(queue.handlers.size).toBe(1);
+	});
+});

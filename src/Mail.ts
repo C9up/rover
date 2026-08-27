@@ -435,9 +435,26 @@ export class Mail {
 		}
 
 		if (options?.queue) {
-			this.#queue = options.queue;
-			this.#queue.register(this.#queueName, new MailJobHandler(this));
+			this.setMessenger(options.queue);
 		}
+	}
+
+	/**
+	 * Hand `sendLater()` a queue after construction (AdonisJS `setMessenger`).
+	 *
+	 * The constructor takes one too, but a queue is often resolved later than
+	 * the mailer — a provider that boots after this one, a test that swaps it.
+	 * Without this the only way in was the constructor, so an app migrating
+	 * from `mail.setMessenger(queue)` stopped at a TypeError.
+	 *
+	 * "Messenger" is upstream's word for what rover's config calls `queue`;
+	 * they are the same thing, and the method keeps the upstream name so a
+	 * migrated call site resolves.
+	 */
+	setMessenger(messenger: BayQueueLike): this {
+		this.#queue = messenger;
+		this.#queue.register(this.#queueName, new MailJobHandler(this));
+		return this;
 	}
 
 	/** Send an email using the fluent message builder. */
