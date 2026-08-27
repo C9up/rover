@@ -444,6 +444,31 @@ export class Mail {
 	}
 
 	/**
+	 * Send a message that is already built (AdonisJS `sendCompiled`).
+	 *
+	 * What a queue worker calls: the message was composed and serialised
+	 * elsewhere, so there is nothing left to render. An alias of
+	 * {@link dispatchMessage}, which is the name ream used first.
+	 */
+	async sendCompiled(message: MailMessage, transport?: string): Promise<void> {
+		await this.dispatchMessage(message, transport);
+	}
+
+	/**
+	 * Queue a message that is already built (AdonisJS `sendLaterCompiled`).
+	 *
+	 * Returns the job id, like {@link sendLater}.
+	 */
+	async sendLaterCompiled(
+		message: MailMessage,
+		options?: { transport?: string; queue?: string },
+	): Promise<string> {
+		// No views: a compiled message was rendered elsewhere, and the templates
+		// that produced it did not travel with it.
+		return this.#enqueue({ message, views: {} }, options);
+	}
+
+	/**
 	 * Hand `sendLater()` a queue after construction (AdonisJS `setMessenger`).
 	 *
 	 * The constructor takes one too, but a queue is often resolved later than
@@ -503,7 +528,24 @@ export class Mail {
 		arg: ((message: MessageBuilder) => void) | BaseMail,
 		options?: { transport?: string; queue?: string },
 	): Promise<string> {
-		const { message, views } = await this.#buildMessageWithViews(arg);
+		const built = await this.#buildMessageWithViews(arg);
+		return this.#enqueue(
+			{ ...built, source: arg instanceof BaseMail ? arg : undefined },
+			options,
+		);
+	}
+
+	/** The queueing half, shared with {@link sendLaterCompiled}. */
+	async #enqueue(
+		built: {
+			message: MailMessage;
+			views: MessageBodyTemplates;
+			/** The BaseMail it came from, for `assertQueued(WelcomeMail)`. */
+			source?: BaseMail;
+		},
+		options?: { transport?: string; queue?: string },
+	): Promise<string> {
+		const { message, views } = built;
 		const queueName = options?.queue ?? this.#queueName;
 		const transportName = options?.transport ?? this.#defaultTransport;
 		const base: MailQueueEvent = {
@@ -513,10 +555,7 @@ export class Mail {
 
 		// Fake mode: capture into the queued bucket, don't dispatch.
 		if (this.#fake !== null) {
-			this.#fake.trackQueued(
-				message,
-				arg instanceof BaseMail ? arg : undefined,
-			);
+			this.#fake.trackQueued(message, built.source);
 			const jobId = `fake_${randomBytes(12).toString("hex")}`;
 			this.#fireQueueing(base);
 			this.#fireQueued({ ...base, jobId });

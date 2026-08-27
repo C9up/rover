@@ -276,3 +276,46 @@ describe("rover > watch body and prepared headers", () => {
 		expect(headerValue(["a", "b"])).toEqual(["a", "b"]);
 	});
 });
+
+describe("rover > watchView and the AdonisJS accessor names", () => {
+	it("renders a template into the watch body", async () => {
+		const root = mkdtempSync(join(tmpdir(), "rover-watch-"));
+		writeFileSync(join(root, "wrist.html"), "<p>{{ name }}</p>");
+
+		const m = message().watchView("wrist", { name: "Ada" });
+		const built = await m.build(root);
+
+		expect(built.watchHtml).toBe("<p>Ada</p>");
+		// The templates are reported alongside html and text.
+		expect(m.views.watch).toEqual({ template: "wrist", data: { name: "Ada" } });
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("contentViews is the upstream name for views", async () => {
+		const m = message().html("<p>x</p>");
+		await m.build();
+		expect(m.contentViews).toEqual(m.views);
+	});
+
+	it("nodeMailerMessage is the object the transports read", async () => {
+		const m = message().subject("Hi");
+		const built = await m.build();
+		expect(m.nodeMailerMessage).toBe(built);
+	});
+});
+
+describe("rover > assertWatchIncludes (AdonisJS parity)", () => {
+	it("passes when the watch body contains the text", async () => {
+		const m = message().watch("<p>on the wrist</p>");
+		await m.build();
+
+		expect(() => m.assertWatchIncludes("wrist")).not.toThrow();
+		expect(() => m.assertWatchIncludes(/WRIST/i)).not.toThrow();
+	});
+
+	it("throws when it does not", async () => {
+		const m = message().watch("<p>x</p>");
+		await m.build();
+		expect(() => m.assertWatchIncludes("missing")).toThrow();
+	});
+});

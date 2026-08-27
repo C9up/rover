@@ -8,6 +8,7 @@ import {
 	type MailMessage,
 	type MailSendResult,
 	type MailTransport,
+	MessageBuilder,
 	registerTransport,
 } from "../../src/index.js";
 import { RoverError } from "../../src/RoverError.js";
@@ -69,6 +70,27 @@ const makeMail = (
 		{ emitter },
 	);
 };
+
+/** The narrow shape rover asks of a queue — no @c9up/bay needed. */
+class FakeQueue {
+	handlers = new Map<string, { handle(payload: unknown): Promise<void> }>();
+	dispatched: Array<{ name: string; payload: unknown }> = [];
+
+	register(name: string, handler: { handle(payload: unknown): Promise<void> }) {
+		this.handlers.set(name, handler);
+	}
+
+	async dispatch(name: string, payload: unknown): Promise<string> {
+		this.dispatched.push({ name, payload });
+		return "job-1";
+	}
+
+	async drain(): Promise<void> {
+		for (const { name, payload } of this.dispatched.splice(0)) {
+			await this.handlers.get(name)?.handle(payload);
+		}
+	}
+}
 
 describe("rover > delivery events", () => {
 	it("fires mail.sent after a successful send with the expected payload shape", async () => {
@@ -266,28 +288,6 @@ describe("rover > mail events carry the AdonisJS triple", () => {
 
 describe("rover > setMessenger wires a queue after construction", () => {
 	/** The narrow shape rover asks of a queue — no @c9up/bay needed. */
-	class FakeQueue {
-		handlers = new Map<string, { handle(payload: unknown): Promise<void> }>();
-		dispatched: Array<{ name: string; payload: unknown }> = [];
-
-		register(
-			name: string,
-			handler: { handle(payload: unknown): Promise<void> },
-		) {
-			this.handlers.set(name, handler);
-		}
-
-		async dispatch(name: string, payload: unknown): Promise<string> {
-			this.dispatched.push({ name, payload });
-			return "job-1";
-		}
-
-		async drain(): Promise<void> {
-			for (const { name, payload } of this.dispatched.splice(0)) {
-				await this.handlers.get(name)?.handle(payload);
-			}
-		}
-	}
 
 	it("routes sendLater() through a queue handed over after construction", async () => {
 		const transport = new PassTransport();
@@ -316,5 +316,28 @@ describe("rover > setMessenger wires a queue after construction", () => {
 		// Without the registration the dispatch above would enqueue a job
 		// nothing knows how to run.
 		expect(queue.handlers.size).toBe(1);
+	});
+});
+
+describe("rover > compiled senders (AdonisJS parity)", () => {
+	it("sendLaterCompiled queues a message that is already built", async () => {
+		const transport = new PassTransport();
+		const mail = makeMail("compiled-1", transport);
+		const queue = new FakeQueue();
+		mail.setMessenger(queue);
+
+		const built = await new MessageBuilder()
+			.from("a@b.c")
+			.to("d@e.f")
+			.subject("Compiled")
+			.html("<p>x</p>")
+			.build();
+
+		// What a queue worker holds: composed and serialised elsewhere, nothing
+		// left to render.
+		const jobId = await mail.sendLaterCompiled(built);
+
+		expect(typeof jobId).toBe("string");
+		expect(queue.dispatched).toHaveLength(1);
 	});
 });

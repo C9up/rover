@@ -258,6 +258,7 @@ function expect(passed: boolean, expectation: string, actual: unknown): void {
 export interface MessageBodyTemplates {
 	html?: { template: string; data: Record<string, unknown> };
 	text?: { template: string; data: Record<string, unknown> };
+	watch?: { template: string; data: Record<string, unknown> };
 }
 
 export class MessageBuilder {
@@ -278,6 +279,8 @@ export class MessageBuilder {
 	 * app logging a send wants to know which template produced it.
 	 */
 	#renderedViews: MessageBodyTemplates = {};
+	#pendingWatchView: { path: string; data: Record<string, unknown> } | null =
+		null;
 	#pendingTextView: { path: string; data: Record<string, unknown> } | null =
 		null;
 
@@ -504,6 +507,22 @@ export class MessageBuilder {
 		);
 	}
 
+	/**
+	 * The Apple Watch body contains `substring` (AdonisJS
+	 * `assertWatchIncludes`).
+	 *
+	 * Takes a RegExp as well as a string, as upstream does — a rendered body
+	 * rarely matches a fixed substring exactly.
+	 */
+	assertWatchIncludes(substring: string | RegExp): void {
+		const body = this.#msg.watchHtml ?? "";
+		const hit =
+			typeof substring === "string"
+				? body.includes(substring)
+				: substring.test(body);
+		expect(hit, `watch body to include "${String(substring)}"`, body);
+	}
+
 	from(address: string, name?: string): this {
 		this.#msg.from = formatAddress(address, name);
 		return this;
@@ -559,6 +578,17 @@ export class MessageBuilder {
 
 	watchHtml(content: string): this {
 		this.#msg.watchHtml = content;
+		return this;
+	}
+
+	/**
+	 * Render a template as the Apple Watch body (AdonisJS `watchView`).
+	 *
+	 * The counterpart of {@link htmlView} and {@link textView}: the render
+	 * happens lazily at `build()` time so the fluent chain stays synchronous.
+	 */
+	watchView(viewPath: string, data?: Record<string, unknown>): this {
+		this.#pendingWatchView = { path: viewPath, data: data ?? {} };
 		return this;
 	}
 	text(content: string): this {
@@ -802,6 +832,21 @@ export class MessageBuilder {
 		return { ...this.#renderedViews };
 	}
 
+	/** AdonisJS' name for {@link views}. */
+	get contentViews(): MessageBodyTemplates {
+		return this.views;
+	}
+
+	/**
+	 * The message as a plain object (AdonisJS `nodeMailerMessage`).
+	 *
+	 * A live reference, as upstream's is — this is the object the transports
+	 * read, not a snapshot. {@link build} is what finalises it.
+	 */
+	get nodeMailerMessage(): MailMessage {
+		return this.#msg;
+	}
+
 	/**
 	 * Finalise the message. `viewsRoot`, when provided by the owning `Mail`,
 	 * scopes template resolution to that instance's configured root instead of
@@ -821,6 +866,19 @@ export class MessageBuilder {
 				viewsRoot,
 			);
 			this.#pendingView = null;
+		}
+		if (this.#pendingWatchView !== null) {
+			this.#renderedViews.watch = {
+				template: this.#pendingWatchView.path,
+				data: this.#pendingWatchView.data,
+			};
+			this.#msg.watchHtml = await renderTemplateFile(
+				this.#pendingWatchView.path,
+				this.#pendingWatchView.data,
+				undefined,
+				viewsRoot,
+			);
+			this.#pendingWatchView = null;
 		}
 		if (this.#pendingTextView !== null) {
 			this.#renderedViews.text = {
