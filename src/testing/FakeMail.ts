@@ -351,7 +351,7 @@ export function mailFake(mailer: FakeableMailer): Plugin {
 }
 
 // Typing side of the plugin — importing `@c9up/rover/testing` augments the
-// helix test context with `mail` (the Japa pattern).
+// helix test context with `mail` (the helix pattern).
 declare module "@c9up/helix" {
 	interface TestContext {
 		mail: FakeMail;
