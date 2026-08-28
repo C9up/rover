@@ -36,20 +36,18 @@ function platformSuffix(): string {
 }
 
 /** Opaque handle to a compiled template IR (Rust `RoverIr`). */
-export interface NativeRoverIr {
-	/** Referenced partial names, in document order (descends into if-bodies). */
-	readonly partialNames: readonly string[];
-}
+export type NativeRoverIr = import("../native/generated.js").RoverIr;
 
-interface NativeExports {
-	readonly engineVersion: () => string;
-	readonly compile: (source: string) => NativeRoverIr;
-	readonly renderIr: (
-		ir: NativeRoverIr,
-		dataJson: string,
-		partials: Record<string, NativeRoverIr>,
-	) => string;
-}
+/**
+ * The engine's surface, as the Rust declares it.
+ *
+ * Derived from `../native/generated.js` — written by `pnpm build:napi-types`
+ * from napi-derive's own `type-def` output — rather than restated here, where
+ * nothing would notice a `pub fn` gaining a parameter or changing its return.
+ * The runtime guard below still checks the three exports are actually there:
+ * a declaration says what the Rust promises, not what a stale binary shipped.
+ */
+type NativeExports = typeof import("../native/generated.js");
 
 function isNativeExports(value: unknown): value is NativeExports {
 	if (value === null || typeof value !== "object") return false;
