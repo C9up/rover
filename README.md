@@ -11,7 +11,7 @@ import '@c9up/rover/transports/mailgun' // opt-in side-effect registration
 const mail = new Mail({
   default: 'mailgun',
   from: 'noreply@acme.com',
-  transports: {
+  mailers: {
     mailgun: { transport: 'mailgun', apiKey: process.env.MAILGUN_KEY!, domain: 'mg.acme.com' },
   },
 })

@@ -29,7 +29,7 @@ export default class RoverProvider {
 				config ?? {
 					default: "log",
 					from: "noreply@localhost",
-					transports: { log: { transport: "log" } },
+					mailers: { log: { transport: "log" } },
 				},
 				{
 					// Optional-peer wiring: if `@c9up/bay` is installed and its

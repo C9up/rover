@@ -22,7 +22,9 @@ function describe(transport: string) {
 }
 
 /**
- * Mailer descriptors for `defineConfig`, matching the AdonisJS call site:
+ * One helper per transport rover ships. Each returns the descriptor a
+ * `mailers` entry is made of — the transport name plus the settings that
+ * transport reads:
  *
  *   defineConfig({
  *     default: 'smtp',
@@ -30,13 +32,12 @@ function describe(transport: string) {
  *     mailers: { smtp: transports.smtp({ host: env.get('SMTP_HOST') }) },
  *   })
  *
- * Named deviation: upstream returns a config PROVIDER that lazily imports the
- * transport. Rover returns the plain descriptor its config can persist, and the
- * transport registers itself on import.
+ * The descriptor is plain data, so a config file can be serialised and
+ * inspected; the transport itself registers on import of the package entry.
  *
- * Postmark has no helper here on purpose: rover has no Postmark transport, so a
- * migrated config naming it fails to COMPILE — which says so plainly — instead
- * of throwing at boot.
+ * The list is exactly what rover can send through — naming a transport that
+ * has no helper fails to COMPILE, which says so plainly, instead of throwing
+ * at boot.
  */
 export const transports = {
 	smtp: describe("smtp"),

@@ -134,18 +134,26 @@ export interface MailFailedEvent extends MailEventBase {
 }
 
 export interface MailConfig {
+	/**
+	 * Mailer used when `send()` is called without naming one. It has to be a
+	 * key of {@link MailConfig.mailers}, or the constructor throws.
+	 */
 	default: string;
 	from: string;
-	transports?: Record<
+	/**
+	 * The declared mailers, name → the transport it sends through plus that
+	 * transport's own settings. Build the entries with the `transports.*`
+	 * helpers.
+	 */
+	mailers?: Record<
 		string,
 		{ transport: string; retry?: RetryConfig; [key: string]: unknown }
 	>;
 	/**
-	 * AdonisJS spelling of `transports`. Both are accepted and mean the same
-	 * thing, so a migrated `config/mail.ts` runs with its imports rewritten and
-	 * nothing else.
+	 * Rover's older spelling of `mailers`. Still accepted and identical in
+	 * effect; new configs declare `mailers`.
 	 */
-	mailers?: Record<
+	transports?: Record<
 		string,
 		{ transport: string; retry?: RetryConfig; [key: string]: unknown }
 	>;
@@ -153,7 +161,7 @@ export interface MailConfig {
 	viewsRoot?: string;
 	/** Optional Bay queue tuning for `sendLater()`. */
 	queue?: { name?: string; maxAttempts?: number };
-	/** Process-wide retry defaults. Overridden per-transport via `transports[name].retry`. */
+	/** Process-wide retry defaults. Overridden per-mailer via `mailers[name].retry`. */
 	retry?: RetryConfig;
 }
 
@@ -418,8 +426,8 @@ export class Mail {
 			setViewsRoot(config.viewsRoot);
 		}
 
-		// `mailers` (AdonisJS) and `transports` (rover) are the same map under two
-		// names; a config that sets both gets both, last name wins per key.
+		// `mailers` and `transports` name the same map; a config that sets both
+		// gets both, and `mailers` wins on a key the two share.
 		const declared = { ...config.transports, ...config.mailers };
 		for (const [name, transportConfig] of Object.entries(declared)) {
 			const factory = transportFactories[transportConfig.transport];
@@ -436,6 +444,20 @@ export class Mail {
 			if (transportConfig.retry) {
 				this.#transportRetry.set(name, transportConfig.retry);
 			}
+		}
+
+		// A `default` naming nothing is a configuration typo, and the cost of
+		// letting it through is that the app boots, looks healthy, and throws on
+		// the first email it tries to send — often a password reset, in
+		// production. Refuse at construction and name what was declared.
+		if (!this.#transports.has(this.#defaultTransport)) {
+			throw new RoverError(
+				"MAIL_UNKNOWN_MAILER",
+				`Mail default mailer '${this.#defaultTransport}' is not declared in config.mailers`,
+				{
+					hint: `${knownMailers(this.#transports)} Add it, or point \`default\` at one of them.`,
+				},
+			);
 		}
 
 		if (options?.queue) {
@@ -509,10 +531,9 @@ export class Mail {
 			this.#fireSent({ ...base, messageId: randomBytes(16).toString("hex") });
 			return;
 		}
-		// Validate transport up-front before running any callback / prepare() side effects.
-		if (!this.#transports.has(transportName)) {
-			throw new Error(`Mail transport '${transportName}' not configured`);
-		}
+		// Validate the mailer up-front, before running any callback / prepare()
+		// side effects.
+		this.#requireTransport(transportName);
 
 		const { message, views } = await this.#buildMessageWithViews(arg);
 		await this.dispatchMessage(message, transportName, undefined, views);
@@ -772,9 +793,7 @@ export class Mail {
 	 * routes through that transport (Adonis parity). Mailers are cached per name.
 	 */
 	use(name: string): Mailer {
-		if (!this.#transports.has(name)) {
-			throw new Error(`Mail transport '${name}' not configured`);
-		}
+		this.#requireTransport(name);
 		let mailer = this.#mailers.get(name);
 		if (mailer === undefined) {
 			mailer = new Mailer(this, name);
@@ -785,9 +804,18 @@ export class Mail {
 
 	/** @internal Resolve the raw transport instance behind a mailer name. */
 	transportFor(name: string): MailTransport {
-		const t = this.#transports.get(name);
-		if (!t) throw new Error(`Mail transport '${name}' not configured`);
-		return t;
+		return this.#requireTransport(name);
+	}
+
+	/** The transport behind `name`, or a RoverError listing the declared ones. */
+	#requireTransport(name: string): MailTransport {
+		const transport = this.#transports.get(name);
+		if (transport) return transport;
+		throw new RoverError(
+			"MAIL_UNKNOWN_MAILER",
+			`Mail mailer '${name}' is not declared in config.mailers`,
+			{ hint: knownMailers(this.#transports) },
+		);
 	}
 
 	/**
@@ -938,4 +966,12 @@ function errorDescriptor(
 		};
 	}
 	return { code: "UNKNOWN", message: String(err), attempts };
+}
+
+/** "Declared mailers: a, b." — the half of an unknown-mailer error that helps. */
+function knownMailers(transports: Map<string, MailTransport>): string {
+	const names = [...transports.keys()];
+	return names.length > 0
+		? `Declared mailers: ${names.join(", ")}.`
+		: "No mailers are declared — add at least one to config.mailers.";
 }

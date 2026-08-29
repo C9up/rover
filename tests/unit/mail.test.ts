@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { Mail, Mailer, MessageBuilder } from "../../src/index.js";
+import {
+	Mail,
+	Mailer,
+	MessageBuilder,
+	type RoverError,
+} from "../../src/index.js";
 
 describe("rover > Mail", () => {
 	it("creates a mail instance with log transport", () => {
@@ -24,13 +29,28 @@ describe("rover > Mail", () => {
 		});
 	});
 
-	it("throws on unknown transport", () => {
-		const mail = new Mail({
-			default: "unknown",
-			from: "test@example.com",
-			transports: {},
-		});
-		expect(mail.send((m) => m.to("a@b.com"))).rejects.toThrow("not configured");
+	it("refuses at construction a `default` that names no mailer", () => {
+		// Not at the first send: the app would boot, look healthy, and fail on
+		// the first email it tries to deliver.
+		expect(
+			() =>
+				new Mail({
+					default: "unknown",
+					from: "test@example.com",
+					mailers: { log: { transport: "log" } },
+				}),
+		).toThrow(/default mailer 'unknown' is not declared/);
+
+		try {
+			new Mail({
+				default: "unknown",
+				from: "test@example.com",
+				mailers: { log: { transport: "log" } },
+			});
+		} catch (error) {
+			expect((error as RoverError).code).toBe("MAIL_UNKNOWN_MAILER");
+			expect((error as RoverError).hint).toContain("log");
+		}
 	});
 
 	it("builds a message with all fields", async () => {
@@ -82,7 +102,7 @@ describe("rover > Mail", () => {
 			from: "test@example.com",
 			transports: { log: { transport: "log" } },
 		});
-		expect(() => mail.use("nope")).toThrow("not configured");
+		expect(() => mail.use("nope")).toThrow(/mailer 'nope' is not declared/);
 	});
 
 	it("sendLater() without a queue falls back to the in-memory messenger (no throw, returns a job id)", async () => {

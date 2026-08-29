@@ -227,7 +227,7 @@ describe("rover > BaseMail", () => {
 
 		const instance = new SideEffectPrepareMail();
 		await expect(mail.send(instance, "bogus")).rejects.toThrow(
-			"not configured",
+			/mailer 'bogus' is not declared/,
 		);
 		expect(instance.sideEffectCount).toBe(0);
 	});
