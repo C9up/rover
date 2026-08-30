@@ -527,3 +527,37 @@ describe("rover > webhooks > Resend", () => {
 
 // Silence unused import warnings from crypto — some adapters only import for side effects.
 void createSign;
+
+describe("rover > the Resend signing secret is validated at config time", () => {
+	const valid = Buffer.from("k".repeat(24)).toString("base64");
+
+	it("takes the secret with or without its whsec_ prefix", () => {
+		expect(() =>
+			createResendWebhookHandler({ secret: `whsec_${valid}` }),
+		).not.toThrow();
+		expect(() => createResendWebhookHandler({ secret: valid })).not.toThrow();
+	});
+
+	it("refuses a secret that is not base64", () => {
+		// `Buffer.from(x, "base64")` never fails — it skips what it cannot read.
+		// So a mistyped secret becomes a short deterministic key, and every
+		// delivery then fails verification and looks like an attack.
+		expect(() =>
+			createResendWebhookHandler({ secret: "whsec_not base64 at all!!" }),
+		).toThrow(/not valid base64/);
+	});
+
+	it("refuses a secret too short to sign with", () => {
+		expect(() =>
+			createResendWebhookHandler({
+				secret: Buffer.from("short").toString("base64"),
+			}),
+		).toThrow(/too short to sign with/);
+	});
+
+	it("still refuses an absent secret", () => {
+		expect(() => createResendWebhookHandler({ secret: "" })).toThrow(
+			/secret is required/,
+		);
+	});
+});

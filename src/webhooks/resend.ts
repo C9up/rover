@@ -57,6 +57,31 @@ const EVENT_MAP: Record<string, string> = {
 	"email.bounced": "mail.bounced",
 };
 
+/**
+ * Turn the configured signing secret into key bytes, or refuse.
+ *
+ * `Buffer.from(value, "base64")` never fails: it skips whatever it cannot read
+ * and hands back whatever is left, so a mistyped secret quietly becomes a
+ * short, deterministic key. Nothing then reports a configuration problem —
+ * every delivery just fails verification and looks like an attack, which is
+ * the one signal this endpoint exists to give.
+ */
+function decodeSigningSecret(value: string): Buffer {
+	const bytes = Buffer.from(value, "base64");
+	const normalize = (v: string) => v.replace(/=+$/, "").replace(/\s/g, "");
+	if (normalize(bytes.toString("base64")) !== normalize(value)) {
+		throw new Error(
+			"createResendWebhookHandler: secret is not valid base64. Copy it from the Resend dashboard — it looks like `whsec_<base64>`.",
+		);
+	}
+	if (bytes.length < 16) {
+		throw new Error(
+			`createResendWebhookHandler: secret decodes to ${bytes.length} bytes, which is too short to sign with. Expected at least 16.`,
+		);
+	}
+	return bytes;
+}
+
 export function createResendWebhookHandler(
 	options: ResendWebhookOptions,
 ): WebhookMiddleware {
@@ -68,7 +93,7 @@ export function createResendWebhookHandler(
 	const secretRaw = options.secret.startsWith("whsec_")
 		? options.secret.slice(6)
 		: options.secret;
-	const keyBytes = Buffer.from(secretRaw, "base64");
+	const keyBytes = decodeSigningSecret(secretRaw);
 	const emitter = options.emitter;
 	const maxAgeSeconds = options.maxAgeSeconds ?? 300;
 
