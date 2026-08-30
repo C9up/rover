@@ -2,6 +2,9 @@
 
 Mail transport for Ream — SMTP, log, and pluggable transports (Mailgun, SendGrid, SES, Resend), plus class-based mailers (`BaseMail`), async templating (`htmlView`), in-process retry with exponential backoff, and an optional queue path via `@c9up/bay`.
 
+`ream add @c9up/rover` installs it, registers the provider and writes
+`config/mail.ts`. The rest of this page assumes that has run.
+
 ## Quick start
 
 ```ts
