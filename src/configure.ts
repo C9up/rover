@@ -9,6 +9,7 @@
 
 interface Codemods {
 	addProvider(importPath: string): Promise<void>;
+	addEnvVars(vars: Record<string, string>): Promise<void>;
 	writeFile(
 		filePath: string,
 		content: string,
@@ -17,6 +18,16 @@ interface Codemods {
 }
 
 export async function configure(codemods: Codemods): Promise<void> {
+	// The config below reads these, so they are declared here. Writing the file
+	// without them leaves an application whose config asks the environment for
+	// something nothing ever put there.
+	await codemods.addEnvVars({
+		MAIL_MAILER: "log",
+		MAIL_FROM: "noreply@example.com",
+		SMTP_HOST: "",
+		SMTP_PORT: "587",
+	});
+
 	await codemods.addProvider("@c9up/rover/provider");
 	await codemods.writeFile(
 		"config/mail.ts",
