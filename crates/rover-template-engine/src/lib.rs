@@ -63,7 +63,10 @@ mod tests {
     #[test]
     fn collect_partial_names_descends_into_if_bodies() {
         let ir = compile("{{> a}}{{#if x}}{{> b}}{{/if}}{{ y }}").unwrap();
-        assert_eq!(collect_partial_names(&ir), vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(
+            collect_partial_names(&ir),
+            vec!["a".to_string(), "b".to_string()]
+        );
     }
 
     #[test]

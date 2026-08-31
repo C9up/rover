@@ -39,15 +39,24 @@ impl ErrorCode {
 
 impl Error {
     pub fn syntax(message: impl Into<String>) -> Self {
-        Self { code: ErrorCode::Syntax, message: message.into() }
+        Self {
+            code: ErrorCode::Syntax,
+            message: message.into(),
+        }
     }
 
     pub fn recursion(message: impl Into<String>) -> Self {
-        Self { code: ErrorCode::Recursion, message: message.into() }
+        Self {
+            code: ErrorCode::Recursion,
+            message: message.into(),
+        }
     }
 
     pub fn not_found(message: impl Into<String>) -> Self {
-        Self { code: ErrorCode::NotFound, message: message.into() }
+        Self {
+            code: ErrorCode::NotFound,
+            message: message.into(),
+        }
     }
 }
 

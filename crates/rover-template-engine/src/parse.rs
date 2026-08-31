@@ -50,22 +50,38 @@ fn parse_block(
                 i += 1;
             }
             TokenKind::Interp => {
-                nodes.push(IrNode::Interp { path: tok.value.clone(), raw: false });
+                nodes.push(IrNode::Interp {
+                    path: tok.value.clone(),
+                    raw: false,
+                });
                 i += 1;
             }
             TokenKind::RawInterp => {
-                nodes.push(IrNode::Interp { path: tok.value.clone(), raw: true });
+                nodes.push(IrNode::Interp {
+                    path: tok.value.clone(),
+                    raw: true,
+                });
                 i += 1;
             }
             TokenKind::Partial => {
-                nodes.push(IrNode::Partial { name: tok.value.clone() });
+                nodes.push(IrNode::Partial {
+                    name: tok.value.clone(),
+                });
                 i += 1;
             }
             TokenKind::IfOpen => {
                 let inner_open_line = tok.line;
-                let (inner_nodes, inner_index) =
-                    parse_block(tokens, i + 1, Some(TokenKind::IfClose), inner_open_line, depth + 1)?;
-                nodes.push(IrNode::If { path: tok.value.clone(), body: inner_nodes });
+                let (inner_nodes, inner_index) = parse_block(
+                    tokens,
+                    i + 1,
+                    Some(TokenKind::IfClose),
+                    inner_open_line,
+                    depth + 1,
+                )?;
+                nodes.push(IrNode::If {
+                    path: tok.value.clone(),
+                    body: inner_nodes,
+                });
                 i = inner_index;
             }
             TokenKind::IfClose => {
@@ -99,7 +115,10 @@ mod tests {
                     path: "x".into(),
                     body: vec![
                         IrNode::Text("b".into()),
-                        IrNode::Interp { path: "y".into(), raw: false },
+                        IrNode::Interp {
+                            path: "y".into(),
+                            raw: false
+                        },
                     ],
                 },
                 IrNode::Text("c".into()),
@@ -123,6 +142,11 @@ mod tests {
     #[test]
     fn partial_node_carries_name() {
         let ir = compile("{{> footer}}").unwrap();
-        assert_eq!(ir.nodes, vec![IrNode::Partial { name: "footer".into() }]);
+        assert_eq!(
+            ir.nodes,
+            vec![IrNode::Partial {
+                name: "footer".into()
+            }]
+        );
     }
 }

@@ -85,7 +85,9 @@ impl RoverIr {
 pub fn compile(source: String) -> Result<RoverIr> {
     wrap(move || {
         let ir = rover_template_engine::compile(&source)?;
-        Ok(RoverIr { inner: Arc::new(ir) })
+        Ok(RoverIr {
+            inner: Arc::new(ir),
+        })
     })
 }
 
@@ -103,7 +105,10 @@ pub fn compile(source: String) -> Result<RoverIr> {
 pub fn render_ir(
     ir: &RoverIr,
     data_json: String,
-    #[napi(ts_arg_type = "Record<string, RoverIr>")] partials: HashMap<String, ClassInstance<RoverIr>>,
+    #[napi(ts_arg_type = "Record<string, RoverIr>")] partials: HashMap<
+        String,
+        ClassInstance<RoverIr>,
+    >,
 ) -> Result<String> {
     let root = ir.inner.clone();
     // Extracting the inner IR from each ClassInstance consumes the napi handles,

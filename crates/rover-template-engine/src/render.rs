@@ -23,11 +23,7 @@ use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
-pub fn render_ir(
-    ir: &Ir,
-    data: &Value,
-    partials: &HashMap<String, Ir>,
-) -> Result<String, Error> {
+pub fn render_ir(ir: &Ir, data: &Value, partials: &HashMap<String, Ir>) -> Result<String, Error> {
     let mut out = String::new();
     let mut visited: HashSet<String> = HashSet::new();
     render_nodes(&ir.nodes, data, partials, &mut visited, &mut out, 0)?;
@@ -192,7 +188,10 @@ mod tests {
 
     #[test]
     fn interpolates_and_escapes() {
-        assert_eq!(render("Hi {{ name }}", json!({"name":"Ada"})).unwrap(), "Hi Ada");
+        assert_eq!(
+            render("Hi {{ name }}", json!({"name":"Ada"})).unwrap(),
+            "Hi Ada"
+        );
         assert_eq!(
             render("{{ name }}", json!({"name":"<script>"})).unwrap(),
             "&lt;script&gt;"
@@ -245,12 +244,21 @@ mod tests {
 
     #[test]
     fn conditionals() {
-        assert_eq!(render("{{#if show}}Y{{/if}}", json!({"show":true})).unwrap(), "Y");
-        assert_eq!(render("{{#if show}}Y{{/if}}", json!({"show":false})).unwrap(), "");
+        assert_eq!(
+            render("{{#if show}}Y{{/if}}", json!({"show":true})).unwrap(),
+            "Y"
+        );
+        assert_eq!(
+            render("{{#if show}}Y{{/if}}", json!({"show":false})).unwrap(),
+            ""
+        );
         assert_eq!(render("{{#if missing}}N{{/if}}", json!({})).unwrap(), "");
         // empty array is falsy
         assert_eq!(render("{{#if xs}}Y{{/if}}", json!({"xs":[]})).unwrap(), "");
-        assert_eq!(render("{{#if xs}}Y{{/if}}", json!({"xs":[1]})).unwrap(), "Y");
+        assert_eq!(
+            render("{{#if xs}}Y{{/if}}", json!({"xs":[1]})).unwrap(),
+            "Y"
+        );
     }
 
     #[test]
