@@ -9,7 +9,8 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { pathToFileURL } from "node:url";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MessageBuilder } from "../../src/index.js";
 import {
 	resetCache,
@@ -110,11 +111,16 @@ describe("rover > the questions the assertions are built on", () => {
 	});
 
 	it("finds an attachment by its source path, including as a URL", () => {
-		const m = new MessageBuilder().attach("/tmp/invoice.pdf");
+		// Both sides go through the platform's own path form. Written with a
+		// POSIX literal and `file:///tmp/...`, this passed everywhere except
+		// Windows, where fileURLToPath answers `\tmp\invoice.pdf` and no
+		// comparison against `/tmp/invoice.pdf` can succeed.
+		const invoice = path.resolve(tmpdir(), "invoice.pdf");
+		const m = new MessageBuilder().attach(invoice);
 
-		expect(m.hasAttachment("/tmp/invoice.pdf")).toBe(true);
-		expect(m.hasAttachment(new URL("file:///tmp/invoice.pdf"))).toBe(true);
-		expect(m.hasAttachment("/tmp/other.pdf")).toBe(false);
+		expect(m.hasAttachment(invoice)).toBe(true);
+		expect(m.hasAttachment(pathToFileURL(invoice))).toBe(true);
+		expect(m.hasAttachment(path.resolve(tmpdir(), "other.pdf"))).toBe(false);
 	});
 
 	it("answers false for a header, or a list header, that was never set", () => {

@@ -123,9 +123,13 @@ jobs:
         env:
           CARGO_BUILD_TARGET: ${{ matrix.target }}
 
+      # Two reporters on purpose. The JSON one feeds the smoke gate below; the
+      # default one is what a human reads. With JSON alone a failure printed
+      # nothing at all — a red Windows job whose log held the exit code and not
+      # one word about which test failed.
       - name: Vitest (NAPI-loaded branch)
         if: matrix.test
-        run: pnpm exec vitest run --reporter=json --outputFile=test-results.json
+        run: pnpm exec vitest run --reporter=default --reporter=json --outputFile=test-results.json
         shell: bash
 
       - name: Smoke gate — tests ran AND zero skipped (Linux/macOS)
