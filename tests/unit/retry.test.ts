@@ -23,7 +23,7 @@ class ScriptedTransport implements MailTransport {
 }
 
 const providerError = (status: number): RoverError =>
-	new RoverError("MAIL_PROVIDER_ERROR", `provider returned ${status}`, {
+	new RoverError("E_MAIL_PROVIDER_ERROR", `provider returned ${status}`, {
 		context: {
 			provider: "test",
 			upstreamStatus: String(status),
@@ -126,7 +126,7 @@ describe("rover > retry", () => {
 		await expect(
 			mail.send((m) => m.to("u@x.com").subject("S")),
 		).rejects.toMatchObject({
-			code: "MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_PROVIDER_ERROR",
 			context: { upstreamStatus: "400" },
 		});
 		expect(transport.calls).toBe(1);
@@ -145,7 +145,7 @@ describe("rover > retry", () => {
 		await expect(
 			mail.send((m) => m.to("u@x.com").subject("S")),
 		).rejects.toMatchObject({
-			code: "MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_PROVIDER_ERROR",
 			context: { upstreamStatus: "503", attempts: "3" },
 		});
 		expect(transport.calls).toBe(3);
@@ -262,7 +262,7 @@ describe("rover > retry", () => {
 		await expect(
 			mail.send((m) => m.to("u@x.com").subject("S")),
 		).rejects.toMatchObject({
-			code: "MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_PROVIDER_ERROR",
 			context: { upstreamStatus: "400" },
 		});
 		expect(onFailed).toHaveBeenCalledOnce();
@@ -306,12 +306,12 @@ describe("rover > retry", () => {
 		});
 		await expect(
 			mail.send((m) => m.to("u@x.com").subject("S")),
-		).rejects.toMatchObject({ code: "MAIL_RETRY_CONFIG" });
+		).rejects.toMatchObject({ code: "E_MAIL_RETRY_CONFIG" });
 	});
 
-	it("retries on MAIL_PROVIDER_ERROR with networkCode ECONNRESET (no HTTP status)", async () => {
+	it("retries on E_MAIL_PROVIDER_ERROR with networkCode ECONNRESET (no HTTP status)", async () => {
 		const { isRetryableError } = await import("../../src/retry.js");
-		const err = new RoverError("MAIL_PROVIDER_ERROR", "socket hang up", {
+		const err = new RoverError("E_MAIL_PROVIDER_ERROR", "socket hang up", {
 			context: {
 				provider: "smtp",
 				upstreamStatus: "0",
@@ -324,7 +324,7 @@ describe("rover > retry", () => {
 
 	it("honours provider Retry-After header in backoff delay", async () => {
 		const errWithRetryAfter = new RoverError(
-			"MAIL_PROVIDER_ERROR",
+			"E_MAIL_PROVIDER_ERROR",
 			"provider throttled",
 			{
 				context: {

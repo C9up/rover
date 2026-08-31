@@ -84,13 +84,13 @@ function dataReplacer(_key: string, value: unknown): unknown {
 			return Number(value);
 		}
 		throw new RoverError(
-			"MAIL_TEMPLATE_SYNTAX",
+			"E_MAIL_TEMPLATE_SYNTAX",
 			`Cannot render bigint ${value} — it exceeds Number.MAX_SAFE_INTEGER and cannot cross the template engine boundary without precision loss; format it to a string before rendering`,
 		);
 	}
 	if (typeof value === "number" && !Number.isFinite(value)) {
 		throw new RoverError(
-			"MAIL_TEMPLATE_SYNTAX",
+			"E_MAIL_TEMPLATE_SYNTAX",
 			`Cannot render non-finite number ${value} — NaN and Infinity have no representation across the template engine boundary; format it to a string before rendering`,
 		);
 	}
@@ -129,7 +129,7 @@ function errnoCode(err: unknown): string {
 
 /**
  * Resolve + read + compile one template path, caching the compiled IR by its
- * resolved absolute path. Owns the `MAIL_TEMPLATE_NOT_FOUND` / `_READ_ERROR`
+ * resolved absolute path. Owns the `E_MAIL_TEMPLATE_NOT_FOUND` / `_READ_ERROR`
  * raising (unchanged from the pre-migration engine).
  */
 async function loadIr(viewPath: string, root: string): Promise<NativeRoverIr> {
@@ -145,7 +145,7 @@ async function loadIr(viewPath: string, root: string): Promise<NativeRoverIr> {
 		// Only ENOENT maps to NOT_FOUND; permission/io errors surface distinctly.
 		if (code !== "ENOENT") {
 			throw new RoverError(
-				"MAIL_TEMPLATE_READ_ERROR",
+				"E_MAIL_TEMPLATE_READ_ERROR",
 				`Template read failed at ${resolved} (${code || "unknown"})`,
 				{
 					hint: "Check filesystem permissions and file descriptor limits.",
@@ -154,7 +154,7 @@ async function loadIr(viewPath: string, root: string): Promise<NativeRoverIr> {
 			);
 		}
 		throw new RoverError(
-			"MAIL_TEMPLATE_NOT_FOUND",
+			"E_MAIL_TEMPLATE_NOT_FOUND",
 			`Template not found at ${resolved}`,
 			{
 				hint: "Create the file or update config.mail.viewsRoot.",
@@ -198,10 +198,10 @@ async function buildPartialMap(
 				// A partial referenced only inside a falsy `{{#if}}` is never
 				// rendered. The pre-migration engine loaded partials lazily, so a
 				// missing such partial did not error. Skip it here; if it IS reached
-				// at render time the Rust renderer raises MAIL_TEMPLATE_NOT_FOUND.
+				// at render time the Rust renderer raises E_MAIL_TEMPLATE_NOT_FOUND.
 				if (
 					err instanceof RoverError &&
-					err.code === "MAIL_TEMPLATE_NOT_FOUND"
+					err.code === "E_MAIL_TEMPLATE_NOT_FOUND"
 				) {
 					continue;
 				}
@@ -238,7 +238,7 @@ function resolveTemplatePath(
 	const rel = path.relative(rootAbs, candidate);
 	if (rel.startsWith("..") || path.isAbsolute(rel)) {
 		throw new RoverError(
-			"MAIL_TEMPLATE_NOT_FOUND",
+			"E_MAIL_TEMPLATE_NOT_FOUND",
 			`Template path "${viewPath}" resolves outside of viewsRoot`,
 			{
 				hint: "Template names must stay under viewsRoot. Absolute paths and `..` traversals are rejected.",

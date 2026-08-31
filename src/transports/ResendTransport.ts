@@ -47,7 +47,7 @@ export class ResendTransport implements MailTransport {
 			typeof config.apiKey === "string" ? normalizeConfig(config.apiKey) : "";
 		if (!apiKey) {
 			throw new RoverError(
-				"MAIL_PROVIDER_CONFIG",
+				"E_MAIL_PROVIDER_CONFIG",
 				"Resend transport requires apiKey",
 				{ hint: "Set { apiKey } in your mail config." },
 			);
@@ -62,7 +62,7 @@ export class ResendTransport implements MailTransport {
 			message.bcc.length === 0
 		) {
 			throw new RoverError(
-				"MAIL_PROVIDER_CONFIG",
+				"E_MAIL_PROVIDER_CONFIG",
 				"Mail message has no recipients",
 				{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
 			);
@@ -127,7 +127,7 @@ export class ResendTransport implements MailTransport {
 			};
 			if (retryAfter) ctx.retryAfter = retryAfter;
 			throw new RoverError(
-				"MAIL_PROVIDER_ERROR",
+				"E_MAIL_PROVIDER_ERROR",
 				`Resend returned ${res.status}`,
 				{
 					hint: "Inspect `context.upstreamStatus` to decide retry eligibility. `context.retryAfter` (when set) carries the provider's backoff hint in seconds.",

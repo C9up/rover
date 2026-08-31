@@ -65,14 +65,14 @@ export class SesTransport implements MailTransport {
 				: "";
 		if (!accessKeyId || !secretAccessKey || !rawRegion) {
 			throw new RoverError(
-				"MAIL_PROVIDER_CONFIG",
+				"E_MAIL_PROVIDER_CONFIG",
 				"SES transport requires accessKeyId, secretAccessKey, and region",
 				{ hint: "Set all three in your mail config." },
 			);
 		}
 		if (!REGION_RE.test(rawRegion)) {
 			throw new RoverError(
-				"MAIL_PROVIDER_CONFIG",
+				"E_MAIL_PROVIDER_CONFIG",
 				`SES region "${rawRegion}" is not a valid AWS region identifier`,
 				{
 					hint: "Use the lowercase canonical form, e.g. 'us-east-1'. Uppercase breaks the SigV4 signing scope.",
@@ -92,7 +92,7 @@ export class SesTransport implements MailTransport {
 			message.bcc.length === 0
 		) {
 			throw new RoverError(
-				"MAIL_PROVIDER_CONFIG",
+				"E_MAIL_PROVIDER_CONFIG",
 				"Mail message has no recipients",
 				{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
 			);
@@ -132,7 +132,7 @@ export class SesTransport implements MailTransport {
 			};
 			if (retryAfter) ctx.retryAfter = retryAfter;
 			throw new RoverError(
-				"MAIL_PROVIDER_ERROR",
+				"E_MAIL_PROVIDER_ERROR",
 				`SES returned ${res.status}`,
 				{
 					hint: "Inspect `context.upstreamStatus` to decide retry eligibility. `context.retryAfter` (when set) carries the provider's backoff hint in seconds.",

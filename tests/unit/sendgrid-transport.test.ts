@@ -100,17 +100,17 @@ describe("rover > SendGridTransport (@sendgrid/mail)", () => {
 		});
 	});
 
-	it("throws MAIL_PROVIDER_CONFIG when message has no recipients", async () => {
+	it("throws E_MAIL_PROVIDER_CONFIG when message has no recipients", async () => {
 		const { client } = makeFakeClient({});
 		const t = new SendGridTransport({ apiKey: "k", _client: client });
 		const msg = baseMessage();
 		msg.to = [];
 		await expect(t.send(msg)).rejects.toMatchObject({
-			code: "MAIL_PROVIDER_CONFIG",
+			code: "E_MAIL_PROVIDER_CONFIG",
 		});
 	});
 
-	it("wraps SDK errors into MAIL_PROVIDER_ERROR with upstreamStatus + body", async () => {
+	it("wraps SDK errors into E_MAIL_PROVIDER_ERROR with upstreamStatus + body", async () => {
 		const sgErr = Object.assign(new Error("Unauthorized"), {
 			code: 401,
 			response: {
@@ -122,7 +122,7 @@ describe("rover > SendGridTransport (@sendgrid/mail)", () => {
 		const { client } = makeFakeClient({ throwError: sgErr });
 		const t = new SendGridTransport({ apiKey: "bad", _client: client });
 		await expect(t.send(baseMessage())).rejects.toMatchObject({
-			code: "MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_PROVIDER_ERROR",
 			context: {
 				provider: "sendgrid",
 				upstreamStatus: "401",
@@ -203,7 +203,7 @@ describe("rover > SendGridTransport (@sendgrid/mail)", () => {
 		const { client } = makeFakeClient({ throwError: netErr });
 		const t = new SendGridTransport({ apiKey: "k", _client: client });
 		await expect(t.send(baseMessage())).rejects.toMatchObject({
-			code: "MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_PROVIDER_ERROR",
 			context: {
 				provider: "sendgrid",
 				upstreamStatus: "0",

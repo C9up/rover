@@ -157,7 +157,7 @@ describe("rover > Mail.sendLater", () => {
 		expect(failedJobs).toHaveLength(0);
 	});
 
-	it("MailJobHandler rejects malformed payload with MAIL_JOB_MALFORMED", async () => {
+	it("MailJobHandler rejects malformed payload with E_MAIL_JOB_MALFORMED", async () => {
 		const { MailJobHandler } = await import("../../src/queue/MailJob.js");
 		const handler = new MailJobHandler({
 			async dispatchMessage() {
@@ -165,17 +165,17 @@ describe("rover > Mail.sendLater", () => {
 			},
 		});
 		await expect(handler.handle(null)).rejects.toMatchObject({
-			code: "MAIL_JOB_MALFORMED",
+			code: "E_MAIL_JOB_MALFORMED",
 		});
 		await expect(handler.handle({})).rejects.toMatchObject({
-			code: "MAIL_JOB_MALFORMED",
+			code: "E_MAIL_JOB_MALFORMED",
 		});
 		await expect(
 			handler.handle({ message: "not-an-object" }),
-		).rejects.toMatchObject({ code: "MAIL_JOB_MALFORMED" });
+		).rejects.toMatchObject({ code: "E_MAIL_JOB_MALFORMED" });
 		await expect(
 			handler.handle({ message: { from: "a", to: "not-an-array" } }),
-		).rejects.toMatchObject({ code: "MAIL_JOB_MALFORMED" });
+		).rejects.toMatchObject({ code: "E_MAIL_JOB_MALFORMED" });
 	});
 
 	it("MailJobHandler handles a JSON-round-tripped payload (Redis-driver shape)", async () => {

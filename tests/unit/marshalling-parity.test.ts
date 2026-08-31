@@ -22,7 +22,7 @@ describe("marshalling — bigint", () => {
 
 	it("rejects a bigint beyond MAX_SAFE_INTEGER instead of throwing a bare TypeError", async () => {
 		await expect(render("{{ n }}", { n: 2n ** 60n })).rejects.toMatchObject({
-			code: "MAIL_TEMPLATE_SYNTAX",
+			code: "E_MAIL_TEMPLATE_SYNTAX",
 		});
 	});
 });
@@ -37,7 +37,7 @@ describe("marshalling — non-finite numbers", () => {
 	it("rejects Infinity rather than silently flipping truthy→falsy", async () => {
 		await expect(
 			render("{{#if x}}Y{{/if}}", { x: Number.POSITIVE_INFINITY }),
-		).rejects.toMatchObject({ code: "MAIL_TEMPLATE_SYNTAX" });
+		).rejects.toMatchObject({ code: "E_MAIL_TEMPLATE_SYNTAX" });
 	});
 });
 
@@ -61,7 +61,7 @@ describe("buildPartialMap — laziness for partials behind a falsy if", () => {
 
 	it("does not eagerly fail when a missing partial sits inside a falsy {{#if}}", async () => {
 		// The partial file does not exist; the old engine never loaded it because
-		// the branch is falsy. The port must not raise MAIL_TEMPLATE_NOT_FOUND.
+		// the branch is falsy. The port must not raise E_MAIL_TEMPLATE_NOT_FOUND.
 		expect(
 			await render("{{#if show}}{{> missing}}{{/if}}done", { show: false }),
 		).toBe("done");

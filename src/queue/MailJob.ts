@@ -70,14 +70,14 @@ export class MailJobHandler implements BayJobHandlerLike {
 
 /**
  * Narrow an `unknown` payload from the queue driver into a `MailJobPayload`.
- * Throws `MAIL_JOB_MALFORMED` when the shape is unrecognisable so Bay records
+ * Throws `E_MAIL_JOB_MALFORMED` when the shape is unrecognisable so Bay records
  * a clean failure rather than crashing inside `dispatchMessage` with a raw
  * `TypeError`.
  */
 function validatePayload(payload: unknown): MailJobPayload {
 	if (!payload || typeof payload !== "object") {
 		throw new RoverError(
-			"MAIL_JOB_MALFORMED",
+			"E_MAIL_JOB_MALFORMED",
 			"Mail job payload is missing or not an object",
 			{ hint: "Queue driver returned a non-object — check serialisation." },
 		);
@@ -86,7 +86,7 @@ function validatePayload(payload: unknown): MailJobPayload {
 	const message = asObj.message;
 	if (!message || typeof message !== "object") {
 		throw new RoverError(
-			"MAIL_JOB_MALFORMED",
+			"E_MAIL_JOB_MALFORMED",
 			"Mail job payload.message is missing or not an object",
 			{
 				hint: "Payload shape must be { message: MailMessage, transport?: string }.",
@@ -100,7 +100,7 @@ function validatePayload(payload: unknown): MailJobPayload {
 		!Array.isArray(m.attachments)
 	) {
 		throw new RoverError(
-			"MAIL_JOB_MALFORMED",
+			"E_MAIL_JOB_MALFORMED",
 			"Mail job payload.message does not match MailMessage shape",
 			{
 				hint: "Expected `{ from: string, to: string[], ..., attachments: [] }`.",

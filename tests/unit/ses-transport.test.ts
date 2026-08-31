@@ -163,7 +163,7 @@ describe("rover > SesTransport", () => {
 		expect(form["ReplyToAddresses.member.1"]).toEqual(["reply@x.comEvil: yes"]);
 	});
 
-	it("throws MAIL_PROVIDER_ERROR on 400 with providerMessage", async () => {
+	it("throws E_MAIL_PROVIDER_ERROR on 400 with providerMessage", async () => {
 		fetchSpy.mockResolvedValue(
 			new Response(
 				"<Error><Code>MessageRejected</Code><Message>Email address is not verified.</Message></Error>",
@@ -173,7 +173,7 @@ describe("rover > SesTransport", () => {
 		const t = new SesTransport(config);
 
 		await expect(t.send(baseMessage())).rejects.toMatchObject({
-			code: "MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_PROVIDER_ERROR",
 			context: {
 				provider: "ses",
 				upstreamStatus: "400",
@@ -242,12 +242,12 @@ describe("rover > SesTransport", () => {
 		expect(auth).toContain("Credential=AKIA-TEST/");
 	});
 
-	it("throws MAIL_PROVIDER_CONFIG when message has no recipients", async () => {
+	it("throws E_MAIL_PROVIDER_CONFIG when message has no recipients", async () => {
 		const t = new SesTransport(config);
 		const msg = baseMessage();
 		msg.to = [];
 		await expect(t.send(msg)).rejects.toMatchObject({
-			code: "MAIL_PROVIDER_CONFIG",
+			code: "E_MAIL_PROVIDER_CONFIG",
 		});
 	});
 

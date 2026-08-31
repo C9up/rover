@@ -1,6 +1,6 @@
 // Loads the native `rover-template-engine-napi` binary built by
 // `scripts/copy-napi.mjs` and re-throws load failures as
-// `MAIL_TEMPLATE_NAPI_REQUIRED` (D55.2.4) — actionable hint points at
+// `E_MAIL_TEMPLATE_NAPI_REQUIRED` (D55.2.4) — actionable hint points at
 // `pnpm --filter @c9up/rover build:napi`.
 //
 // Per cerebrum 2026-04-15 there is NO JS fallback. If the binary fails to load,
@@ -25,7 +25,7 @@ function platformSuffix(): string {
 	const suffix = SUFFIX_MAP[key];
 	if (typeof suffix !== "string") {
 		throw new RoverError(
-			"MAIL_TEMPLATE_NAPI_REQUIRED",
+			"E_MAIL_TEMPLATE_NAPI_REQUIRED",
 			`Unsupported platform/arch '${key}' for @c9up/rover native binary. Supported: ${Object.keys(SUFFIX_MAP).join(", ")}.`,
 			{
 				hint: "Build the native binary on a supported platform with 'pnpm --filter @c9up/rover build:napi'.",
@@ -87,7 +87,7 @@ export function getNative(): NativeExports {
 			? " If you are on Alpine/musl, note the prebuilt binaries target glibc (musl is not a supported target)."
 			: "";
 		throw new RoverError(
-			"MAIL_TEMPLATE_NAPI_REQUIRED",
+			"E_MAIL_TEMPLATE_NAPI_REQUIRED",
 			`@c9up/rover native binary 'index.${suffix}.node' not found or failed to load near ${here} — run 'pnpm --filter @c9up/rover build:napi' to build it.${muslHint} Cause: ${causeMessage}`,
 			{
 				hint: "Run 'pnpm --filter @c9up/rover build:napi' to compile the native template engine.",
@@ -96,7 +96,7 @@ export function getNative(): NativeExports {
 	}
 	if (!isNativeExports(loaded)) {
 		throw new RoverError(
-			"MAIL_TEMPLATE_NAPI_REQUIRED",
+			"E_MAIL_TEMPLATE_NAPI_REQUIRED",
 			"@c9up/rover native binary loaded but missing expected exports (engineVersion / compile / renderIr). Rebuild with 'pnpm --filter @c9up/rover build:napi'.",
 			{
 				hint: "The native binary is stale — rebuild with 'pnpm --filter @c9up/rover build:napi'.",
@@ -126,11 +126,11 @@ function isNapiErrorPayload(value: unknown): value is NapiErrorPayload {
 
 /** Codes the Rust engine legitimately emits, with their actionable hints. */
 const CODE_HINTS: Readonly<Record<string, string>> = {
-	MAIL_TEMPLATE_SYNTAX:
+	E_MAIL_TEMPLATE_SYNTAX:
 		"Check the template grammar: {{ var }}, {{{ raw }}}, {{#if x}}...{{/if}}, {{> partial}}.",
 	MAIL_TEMPLATE_RECURSION:
 		"Break the cycle — a template cannot include itself (directly or via partials).",
-	MAIL_TEMPLATE_NOT_FOUND:
+	E_MAIL_TEMPLATE_NOT_FOUND:
 		"Create the referenced partial file or remove the {{> name}} reference.",
 };
 
@@ -156,12 +156,12 @@ export function toReamError(err: unknown): RoverError {
 			}
 		}
 		return new RoverError(
-			"MAIL_TEMPLATE_SYNTAX",
+			"E_MAIL_TEMPLATE_SYNTAX",
 			`Native template call failed: ${err.message}`,
 		);
 	}
 	return new RoverError(
-		"MAIL_TEMPLATE_SYNTAX",
+		"E_MAIL_TEMPLATE_SYNTAX",
 		`Native template call failed with non-Error: ${String(err)}`,
 	);
 }

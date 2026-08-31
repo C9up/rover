@@ -112,7 +112,7 @@ describe("rover > MailgunTransport (mailgun.js)", () => {
 		expect(atts[0].contentType).toBe("application/pdf");
 	});
 
-	it("throws MAIL_PROVIDER_CONFIG when message has no recipients", async () => {
+	it("throws E_MAIL_PROVIDER_CONFIG when message has no recipients", async () => {
 		const { client } = makeFakeClient({});
 		const t = new MailgunTransport({
 			apiKey: "k",
@@ -122,11 +122,11 @@ describe("rover > MailgunTransport (mailgun.js)", () => {
 		const msg = baseMessage();
 		msg.to = [];
 		await expect(t.send(msg)).rejects.toMatchObject({
-			code: "MAIL_PROVIDER_CONFIG",
+			code: "E_MAIL_PROVIDER_CONFIG",
 		});
 	});
 
-	it("throws MAIL_PROVIDER_ERROR wrapping mailgun.js errors", async () => {
+	it("throws E_MAIL_PROVIDER_ERROR wrapping mailgun.js errors", async () => {
 		const mailgunErr = Object.assign(new Error("Unauthorized"), {
 			status: 401,
 			details: "Invalid api key",
@@ -138,7 +138,7 @@ describe("rover > MailgunTransport (mailgun.js)", () => {
 			_client: client,
 		});
 		await expect(t.send(baseMessage())).rejects.toMatchObject({
-			code: "MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_PROVIDER_ERROR",
 			context: {
 				provider: "mailgun",
 				upstreamStatus: "401",
@@ -247,7 +247,7 @@ describe("rover > MailgunTransport (mailgun.js)", () => {
 			_client: client,
 		});
 		await expect(t.send(baseMessage())).rejects.toMatchObject({
-			code: "MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_PROVIDER_ERROR",
 			context: {
 				provider: "mailgun",
 				upstreamStatus: "0",

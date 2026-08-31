@@ -110,14 +110,14 @@ mod tests {
     #[test]
     fn unclosed_if_reports_opening_line() {
         let err = compile("line1\nline2 {{#if foo}}nope").unwrap_err();
-        assert_eq!(err.code.as_str(), "MAIL_TEMPLATE_SYNTAX");
+        assert_eq!(err.code.as_str(), "E_MAIL_TEMPLATE_SYNTAX");
         assert!(err.message.contains("line 2"), "got: {}", err.message);
     }
 
     #[test]
     fn stray_if_close_is_syntax_error() {
         let err = compile("{{/if}}").unwrap_err();
-        assert_eq!(err.code.as_str(), "MAIL_TEMPLATE_SYNTAX");
+        assert_eq!(err.code.as_str(), "E_MAIL_TEMPLATE_SYNTAX");
     }
 
     #[test]

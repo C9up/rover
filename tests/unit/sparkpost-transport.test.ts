@@ -243,7 +243,7 @@ describe("rover > SparkPostTransport", () => {
 			expect.unreachable("a 429 has to be reported");
 		} catch (error) {
 			const rover = error as RoverError;
-			expect(rover.code).toBe("MAIL_PROVIDER_ERROR");
+			expect(rover.code).toBe("E_MAIL_PROVIDER_ERROR");
 			expect(rover.context.upstreamStatus).toBe("429");
 			expect(rover.context.retryAfter).toBe("30");
 			expect(rover.context.providerMessage).toContain("too many transmissions");

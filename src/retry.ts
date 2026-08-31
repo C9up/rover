@@ -24,15 +24,15 @@ const RETRYABLE_ERRNO = new Set([
 
 /**
  * A failure is retryable when:
- *   - it's a `MAIL_PROVIDER_ERROR` with `upstreamStatus` 429 or ≥ 500
- *   - or it's a `MAIL_PROVIDER_ERROR` whose `context.networkCode` is a known
+ *   - it's a `E_MAIL_PROVIDER_ERROR` with `upstreamStatus` 429 or ≥ 500
+ *   - or it's a `E_MAIL_PROVIDER_ERROR` whose `context.networkCode` is a known
  *     retryable Node errno (SDK wrappers surface the original errno this way
  *     when the HTTP layer never produced a status)
  *   - or it's a raw Error with a matching Node networking errno on `.code`
  * 4xx (non-429) is treated as permanent: retrying won't help.
  */
 export function isRetryableError(err: unknown): boolean {
-	if (err instanceof RoverError && err.code === "MAIL_PROVIDER_ERROR") {
+	if (err instanceof RoverError && err.code === "E_MAIL_PROVIDER_ERROR") {
 		const statusStr = err.context.upstreamStatus;
 		const status = Number(statusStr);
 		if (Number.isFinite(status)) {
@@ -70,7 +70,7 @@ export function computeBackoffMs(
 	// SES/Resend transports capture it into `context.retryAfter`). Value is
 	// seconds per HTTP RFC 7231 §7.1.3; we cap at `maxDelayMs` so a malicious
 	// or mistaken provider can't force a very-long wait.
-	if (err instanceof RoverError && err.code === "MAIL_PROVIDER_ERROR") {
+	if (err instanceof RoverError && err.code === "E_MAIL_PROVIDER_ERROR") {
 		const hint = err.context.retryAfter;
 		if (hint) {
 			const seconds = Number(hint);
@@ -104,7 +104,7 @@ export function resolveRetryConfig(
 	};
 	if (!Number.isInteger(merged.maxAttempts) || merged.maxAttempts < 1) {
 		throw new RoverError(
-			"MAIL_RETRY_CONFIG",
+			"E_MAIL_RETRY_CONFIG",
 			`RetryConfig.maxAttempts must be an integer >= 1 (got ${merged.maxAttempts})`,
 			{ hint: "Set retry.maxAttempts to a positive integer." },
 		);
@@ -115,7 +115,7 @@ export function resolveRetryConfig(
 		merged.baseDelayMs < 0
 	) {
 		throw new RoverError(
-			"MAIL_RETRY_CONFIG",
+			"E_MAIL_RETRY_CONFIG",
 			`RetryConfig.baseDelayMs must be a non-negative finite number (got ${merged.baseDelayMs})`,
 			{ hint: "Use 0 or a positive number; the 50 ms floor kicks in anyway." },
 		);
@@ -126,7 +126,7 @@ export function resolveRetryConfig(
 		merged.factor <= 0
 	) {
 		throw new RoverError(
-			"MAIL_RETRY_CONFIG",
+			"E_MAIL_RETRY_CONFIG",
 			`RetryConfig.factor must be a positive finite number (got ${merged.factor})`,
 			{ hint: "Use >= 1 for exponential growth; 1 means constant delay." },
 		);

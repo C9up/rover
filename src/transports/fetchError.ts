@@ -1,7 +1,7 @@
 import { RoverError } from "../RoverError.js";
 
 /**
- * Wrap a `fetch()` rejection into the uniform `MAIL_PROVIDER_ERROR` shape
+ * Wrap a `fetch()` rejection into the uniform `E_MAIL_PROVIDER_ERROR` shape
  * so the retry classifier can recognise transient network failures
  * (ECONNRESET / ENOTFOUND / EAI_AGAIN / ...).
  *
@@ -32,7 +32,7 @@ export function wrapFetchNetworkError(
 	};
 	if (networkCode) ctx.networkCode = networkCode;
 	return new RoverError(
-		"MAIL_PROVIDER_ERROR",
+		"E_MAIL_PROVIDER_ERROR",
 		`${provider} fetch failed${networkCode ? ` (${networkCode})` : ""}`,
 		{
 			hint: "Inspect `context.networkCode` (ECONNRESET / ENOTFOUND / ...) — the retry classifier treats known transient errnos as retryable.",
@@ -50,7 +50,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
  * Without one, a stalled provider connection never settles: the send hangs,
  * the queue worker holding it hangs with it, and enough of them stop mail going
  * out at all — with no error to explain the silence. A timeout surfaces as the
- * same `MAIL_PROVIDER_ERROR` shape the retry classifier already understands, so
+ * same `E_MAIL_PROVIDER_ERROR` shape the retry classifier already understands, so
  * it is retried like any other transient network failure.
  */
 export async function fetchWithTimeout(
@@ -68,7 +68,7 @@ export async function fetchWithTimeout(
 	} catch (err) {
 		if (err instanceof Error && err.name === "TimeoutError") {
 			throw new RoverError(
-				"MAIL_PROVIDER_ERROR",
+				"E_MAIL_PROVIDER_ERROR",
 				`${provider} did not answer within ${timeoutMs}ms.`,
 				{
 					context: { provider, upstreamStatus: "0", networkCode: "ETIMEDOUT" },

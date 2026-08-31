@@ -208,7 +208,7 @@ describe("rover > BrevoTransport", () => {
 		} catch (error) {
 			const rover = error as RoverError;
 			// Retry eligibility is decided from these, so they are the payload.
-			expect(rover.code).toBe("MAIL_PROVIDER_ERROR");
+			expect(rover.code).toBe("E_MAIL_PROVIDER_ERROR");
 			expect(rover.context.upstreamStatus).toBe("429");
 			expect(rover.context.retryAfter).toBe("30");
 			expect(rover.context.providerMessage).toContain("rate limited");

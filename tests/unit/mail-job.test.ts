@@ -169,7 +169,7 @@ describe("rover > MailJobHandler", () => {
 		const handler = new MailJobHandler(new RecordingDispatcher());
 
 		await expect(handler.handle(null)).rejects.toMatchObject({
-			code: "MAIL_JOB_MALFORMED",
+			code: "E_MAIL_JOB_MALFORMED",
 		});
 	});
 });

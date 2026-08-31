@@ -44,7 +44,7 @@ export class MailgunTransport implements MailTransport {
 			typeof config.domain === "string" ? normalizeConfig(config.domain) : "";
 		if (!apiKey || !domain) {
 			throw new RoverError(
-				"MAIL_PROVIDER_CONFIG",
+				"E_MAIL_PROVIDER_CONFIG",
 				"Mailgun transport requires apiKey and domain",
 				{ hint: "Set { apiKey, domain } in your mail config." },
 			);
@@ -55,7 +55,7 @@ export class MailgunTransport implements MailTransport {
 		// bug — defaulting to "us" under those conditions is a compliance risk).
 		if (config.region !== undefined && typeof config.region !== "string") {
 			throw new RoverError(
-				"MAIL_PROVIDER_CONFIG",
+				"E_MAIL_PROVIDER_CONFIG",
 				`Mailgun region must be a string ("us" or "eu"), got ${typeof config.region}`,
 				{ hint: "Set config.region explicitly as 'us' or 'eu'." },
 			);
@@ -66,7 +66,7 @@ export class MailgunTransport implements MailTransport {
 				: "us";
 		if (rawRegion !== "us" && rawRegion !== "eu") {
 			throw new RoverError(
-				"MAIL_PROVIDER_CONFIG",
+				"E_MAIL_PROVIDER_CONFIG",
 				`Mailgun region must be "us" or "eu", got "${rawRegion}"`,
 				{
 					hint: "Use { region: 'us' } or { region: 'eu' }. A typo silently routing EU traffic to US infrastructure is a compliance risk.",
@@ -105,7 +105,7 @@ export class MailgunTransport implements MailTransport {
 			message.bcc.length === 0
 		) {
 			throw new RoverError(
-				"MAIL_PROVIDER_CONFIG",
+				"E_MAIL_PROVIDER_CONFIG",
 				"Mail message has no recipients",
 				{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
 			);
@@ -160,7 +160,7 @@ export class MailgunTransport implements MailTransport {
 
 /**
  * mailgun.js's own error shape is `{ status, details | message, ... }`.
- * Map it to our uniform `MAIL_PROVIDER_ERROR` so retry + observability
+ * Map it to our uniform `E_MAIL_PROVIDER_ERROR` so retry + observability
  * consumers don't need to branch on provider.
  *
  * Bare `Error` (no `status`) — typical for network/ECONNRESET failures from
@@ -200,7 +200,7 @@ function wrapMailgunError(err: unknown): RoverError {
 			: retryAfterHeader;
 	}
 	return new RoverError(
-		"MAIL_PROVIDER_ERROR",
+		"E_MAIL_PROVIDER_ERROR",
 		`Mailgun returned ${status || "unknown"}`,
 		{
 			hint: "Inspect `context.upstreamStatus` (HTTP) or `context.networkCode` (ECONNRESET/etc.) to decide retry eligibility.",

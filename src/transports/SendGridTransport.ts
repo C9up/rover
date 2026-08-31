@@ -50,7 +50,7 @@ export class SendGridTransport implements MailTransport {
 			typeof config.apiKey === "string" ? normalizeConfig(config.apiKey) : "";
 		if (!apiKey) {
 			throw new RoverError(
-				"MAIL_PROVIDER_CONFIG",
+				"E_MAIL_PROVIDER_CONFIG",
 				"SendGrid transport requires apiKey",
 				{ hint: "Set { apiKey } in your mail config." },
 			);
@@ -148,7 +148,7 @@ function assertHasRecipients(message: MailMessage): void {
 		message.bcc.length === 0
 	) {
 		throw new RoverError(
-			"MAIL_PROVIDER_CONFIG",
+			"E_MAIL_PROVIDER_CONFIG",
 			"Mail message has no recipients",
 			{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
 		);
@@ -215,7 +215,7 @@ function wrapSendGridError(err: unknown): RoverError {
 	const retryAfter = anyErr.response?.headers?.["retry-after"];
 	if (retryAfter) ctx.retryAfter = retryAfter;
 	return new RoverError(
-		"MAIL_PROVIDER_ERROR",
+		"E_MAIL_PROVIDER_ERROR",
 		`SendGrid returned ${status || "unknown"}`,
 		{
 			hint: "Inspect `context.upstreamStatus` (HTTP) or `context.networkCode` (ECONNRESET/etc.) to decide retry eligibility. `context.retryAfter` (when set) carries the provider's backoff hint in seconds.",
@@ -239,7 +239,7 @@ function resolveMailServiceCtor(mod: unknown): new () => MailService {
 		}
 	}
 	throw new RoverError(
-		"MAIL_PROVIDER_CONFIG",
+		"E_MAIL_PROVIDER_CONFIG",
 		"@sendgrid/mail runtime does not expose `.MailService` — upgrade to v8+",
 		{
 			hint: "Expected `module.exports.MailService` to be the MailService class (index.js attaches it).",

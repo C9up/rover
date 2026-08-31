@@ -183,7 +183,7 @@ export function attachmentsFor(message: MailMessage): MailAttachment[] {
 		// SMTP. An HTTP provider takes the bytes, and silently dropping the
 		// invitation would be worse than saying so.
 		throw new RoverError(
-			"ICAL_HREF_UNSUPPORTED",
+			"E_ICAL_HREF_UNSUPPORTED",
 			"icalEventFromUrl() is only supported by the SMTP transport, which fetches the URL itself.",
 			{
 				hint: "Fetch the ICS yourself and pass it to icalEvent(contents), or use icalEventFromFile().",
@@ -208,7 +208,7 @@ async function readAttachment(path: string, label: string): Promise<Buffer> {
 		return await readFile(path);
 	} catch (err) {
 		throw new RoverError(
-			"ATTACHMENT_UNREADABLE",
+			"E_ATTACHMENT_UNREADABLE",
 			`Could not read ${label} from "${path}": ${err instanceof Error ? err.message : String(err)}`,
 			{
 				hint: "Give an absolute path, or attach the bytes with attachData() / embedData().",
@@ -246,7 +246,7 @@ function renderListHeader(
 function expect(passed: boolean, expectation: string, actual: unknown): void {
 	if (passed) return;
 	throw new RoverError(
-		"ASSERTION_FAILED",
+		"E_ASSERTION_FAILED",
 		`Expected the message ${expectation}, got ${JSON.stringify(actual)}`,
 	);
 }
@@ -760,7 +760,7 @@ export class MessageBuilder {
 			for (const url of listUrls(value)) {
 				if (!url.toLowerCase().startsWith("http")) {
 					throw new RoverError(
-						"INVALID_LIST_HEADER",
+						"E_INVALID_LIST_HEADER",
 						`listUnsubscribe({ oneClick: true }) needs an https URL that can answer a POST, got "${url}".`,
 						{
 							hint: "Keep the mailto: form without oneClick, or add an https endpoint alongside it.",

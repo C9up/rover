@@ -337,7 +337,7 @@ describe("rover > BaseMail", () => {
 	});
 
 	// 39.1-A6 — Mail constructor throws on unknown transport type (deferred-work)
-	it("throws MAIL_UNKNOWN_TRANSPORT at construction when the transport type is not registered", () => {
+	it("throws E_MAIL_UNKNOWN_TRANSPORT at construction when the transport type is not registered", () => {
 		expect(
 			() =>
 				new Mail({
@@ -430,8 +430,8 @@ describe("rover > BaseMail", () => {
 	// MailJob.validatePayload only checks `m.to` is an array; cc/bcc are
 	// optional at the queue boundary. A deserialised job payload may reach
 	// dispatchMessage with `cc`/`bcc` as `undefined` — validateMailMessage
-	// must surface `MAIL_INVALID_MESSAGE`, not crash on `.some(undefined)`.
-	it("dispatchMessage surfaces MAIL_INVALID_MESSAGE when cc/bcc are missing (not TypeError)", async () => {
+	// must surface `E_MAIL_INVALID_MESSAGE`, not crash on `.some(undefined)`.
+	it("dispatchMessage surfaces E_MAIL_INVALID_MESSAGE when cc/bcc are missing (not TypeError)", async () => {
 		const spy = new SpyTransport();
 		registerTransport("spy-dispatch-undef", () => spy);
 		const mail = new Mail({

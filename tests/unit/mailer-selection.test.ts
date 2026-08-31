@@ -111,7 +111,7 @@ describe("rover > mailer selection", () => {
 			new Mail({ default: "smtp", from: "noreply@example.com", mailers: {} });
 			expect.unreachable("an empty `mailers` map has to be refused");
 		} catch (error) {
-			expect((error as RoverError).code).toBe("MAIL_UNKNOWN_MAILER");
+			expect((error as RoverError).code).toBe("E_MAIL_UNKNOWN_MAILER");
 			expect((error as RoverError).hint).toMatch(/No mailers are declared/);
 		}
 	});

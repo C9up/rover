@@ -41,7 +41,7 @@ fn to_napi_error(e: EngineError) -> napi::Error {
     };
     let json = serde_json::to_string(&payload).unwrap_or_else(|_| {
         format!(
-            "{{\"code\":\"MAIL_TEMPLATE_SYNTAX\",\"message\":{:?}}}",
+            "{{\"code\":\"E_MAIL_TEMPLATE_SYNTAX\",\"message\":{:?}}}",
             e.message
         )
     });
@@ -57,7 +57,7 @@ where
         Ok(Ok(v)) => Ok(v),
         Ok(Err(e)) => Err(to_napi_error(e)),
         Err(_) => Err(napi::Error::from_reason(
-            "{\"code\":\"MAIL_TEMPLATE_SYNTAX\",\"message\":\"Internal panic in rover template engine\"}",
+            "{\"code\":\"E_MAIL_TEMPLATE_SYNTAX\",\"message\":\"Internal panic in rover template engine\"}",
         )),
     }
 }

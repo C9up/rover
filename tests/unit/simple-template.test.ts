@@ -54,23 +54,23 @@ describe("rover > SimpleTemplate", () => {
 			expect(await render("{{#if missing}}NO{{/if}}", {})).toBe("");
 		});
 
-		it("unclosed {{#if}} throws MAIL_TEMPLATE_SYNTAX", async () => {
+		it("unclosed {{#if}} throws E_MAIL_TEMPLATE_SYNTAX", async () => {
 			await expect(
 				render("{{#if foo}}nope", { foo: true }),
 			).rejects.toMatchObject({
-				code: "MAIL_TEMPLATE_SYNTAX",
+				code: "E_MAIL_TEMPLATE_SYNTAX",
 			});
 		});
 
-		it("empty partial name throws MAIL_TEMPLATE_SYNTAX", async () => {
+		it("empty partial name throws E_MAIL_TEMPLATE_SYNTAX", async () => {
 			await expect(render("{{> }}", {})).rejects.toMatchObject({
-				code: "MAIL_TEMPLATE_SYNTAX",
+				code: "E_MAIL_TEMPLATE_SYNTAX",
 			});
 		});
 
-		it("invalid dot-path (double-dot) throws MAIL_TEMPLATE_SYNTAX", async () => {
+		it("invalid dot-path (double-dot) throws E_MAIL_TEMPLATE_SYNTAX", async () => {
 			await expect(render("{{ user..email }}", {})).rejects.toMatchObject({
-				code: "MAIL_TEMPLATE_SYNTAX",
+				code: "E_MAIL_TEMPLATE_SYNTAX",
 			});
 		});
 	});
@@ -121,9 +121,9 @@ describe("rover > SimpleTemplate", () => {
 			expect(await renderFile("welcome", { name: "C" })).toBe("v2 C");
 		});
 
-		it("missing template throws MAIL_TEMPLATE_NOT_FOUND with path in context", async () => {
+		it("missing template throws E_MAIL_TEMPLATE_NOT_FOUND with path in context", async () => {
 			await expect(renderFile("missing", {})).rejects.toMatchObject({
-				code: "MAIL_TEMPLATE_NOT_FOUND",
+				code: "E_MAIL_TEMPLATE_NOT_FOUND",
 				context: expect.objectContaining({
 					path: expect.stringContaining("missing.html"),
 				}),
@@ -136,14 +136,14 @@ describe("rover > SimpleTemplate", () => {
 
 		it("rejects absolute paths outside viewsRoot (path traversal guard)", async () => {
 			await expect(renderFile("/etc/passwd", {})).rejects.toMatchObject({
-				code: "MAIL_TEMPLATE_NOT_FOUND",
+				code: "E_MAIL_TEMPLATE_NOT_FOUND",
 			});
 		});
 
 		it("rejects `../` traversal that escapes viewsRoot", async () => {
 			await expect(renderFile("../../../etc/passwd", {})).rejects.toMatchObject(
 				{
-					code: "MAIL_TEMPLATE_NOT_FOUND",
+					code: "E_MAIL_TEMPLATE_NOT_FOUND",
 				},
 			);
 		});
@@ -175,7 +175,7 @@ describe("rover > SimpleTemplate", () => {
 			});
 		});
 
-		it("throws MAIL_TEMPLATE_NOT_FOUND context carries tried paths", async () => {
+		it("throws E_MAIL_TEMPLATE_NOT_FOUND context carries tried paths", async () => {
 			await expect(renderFile("missing", {})).rejects.toMatchObject({
 				context: expect.objectContaining({
 					paths: expect.stringContaining("missing.html"),
@@ -213,7 +213,7 @@ describe("rover > SimpleTemplate", () => {
 			await expect(
 				render("line1\nline2 {{#if foo}}nope", { foo: true }),
 			).rejects.toMatchObject({
-				code: "MAIL_TEMPLATE_SYNTAX",
+				code: "E_MAIL_TEMPLATE_SYNTAX",
 				message: expect.stringMatching(/line 2/),
 			});
 		});

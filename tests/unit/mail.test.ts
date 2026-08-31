@@ -48,7 +48,7 @@ describe("rover > Mail", () => {
 				mailers: { log: { transport: "log" } },
 			});
 		} catch (error) {
-			expect((error as RoverError).code).toBe("MAIL_UNKNOWN_MAILER");
+			expect((error as RoverError).code).toBe("E_MAIL_UNKNOWN_MAILER");
 			expect((error as RoverError).hint).toContain("log");
 		}
 	});

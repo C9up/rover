@@ -18,7 +18,7 @@ describe("rover > wrapFetchNetworkError", () => {
 		});
 		const wrapped = wrapFetchNetworkError("mailgun", err);
 		expect(wrapped).toBeInstanceOf(RoverError);
-		expect(wrapped.code).toBe("MAIL_PROVIDER_ERROR");
+		expect(wrapped.code).toBe("E_MAIL_PROVIDER_ERROR");
 		expect(wrapped.message).toContain("mailgun fetch failed (ECONNRESET)");
 		const ctx = wrapped.context as Record<string, string>;
 		expect(ctx.provider).toBe("mailgun");
@@ -53,9 +53,13 @@ describe("rover > wrapFetchNetworkError", () => {
 	});
 
 	it("passes a pre-existing RoverError through unchanged", () => {
-		const original = new RoverError("MAIL_PROVIDER_ERROR", "already wrapped", {
-			context: { provider: "x" },
-		});
+		const original = new RoverError(
+			"E_MAIL_PROVIDER_ERROR",
+			"already wrapped",
+			{
+				context: { provider: "x" },
+			},
+		);
 		const wrapped = wrapFetchNetworkError("ignored", original);
 		expect(wrapped).toBe(original);
 	});

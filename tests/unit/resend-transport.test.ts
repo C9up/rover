@@ -127,13 +127,13 @@ describe("rover > ResendTransport", () => {
 		expect(body.reply_to).toBe("reply@x.comEvil: yes");
 	});
 
-	it("throws MAIL_PROVIDER_ERROR on 422", async () => {
+	it("throws E_MAIL_PROVIDER_ERROR on 422", async () => {
 		fetchSpy.mockResolvedValue(
 			new Response('{"name":"validation_error"}', { status: 422 }),
 		);
 		const t = new ResendTransport({ apiKey: "k" });
 		await expect(t.send(baseMessage())).rejects.toMatchObject({
-			code: "MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_PROVIDER_ERROR",
 			context: {
 				provider: "resend",
 				upstreamStatus: "422",
@@ -196,12 +196,12 @@ describe("rover > ResendTransport", () => {
 		expect(auth).toBe("Bearer re_abc");
 	});
 
-	it("throws MAIL_PROVIDER_CONFIG when message has no recipients", async () => {
+	it("throws E_MAIL_PROVIDER_CONFIG when message has no recipients", async () => {
 		const t = new ResendTransport({ apiKey: "k" });
 		const msg = baseMessage();
 		msg.to = [];
 		await expect(t.send(msg)).rejects.toMatchObject({
-			code: "MAIL_PROVIDER_CONFIG",
+			code: "E_MAIL_PROVIDER_CONFIG",
 		});
 	});
 });

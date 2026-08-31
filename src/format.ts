@@ -37,7 +37,7 @@ export function formatAddress(address: string, name?: string): string {
 function assertHeaderSafe(value: string, what: string): void {
 	if (!HEADER_BREAKERS.test(value)) return;
 	throw new RoverError(
-		"MAIL_HEADER_INJECTION",
+		"E_MAIL_HEADER_INJECTION",
 		`The ${what} contains a line break or NUL, which cannot appear in a mail header.`,
 		{
 			hint: "Strip CR/LF/NUL from user-supplied names and addresses before building the message.",

@@ -199,13 +199,13 @@ export class SmtpTransport implements MailTransport {
 		// construction with an actionable message instead.
 		if (config.host !== undefined && typeof config.host !== "string") {
 			throw new RoverError(
-				"MAIL_PROVIDER_CONFIG",
+				"E_MAIL_PROVIDER_CONFIG",
 				`SMTP host must be a string, got ${typeof config.host}`,
 				{ hint: "Set config.host to your SMTP server hostname." },
 			);
 		}
 		if (typeof config.host !== "string" || config.host.length === 0) {
-			throw new RoverError("MAIL_PROVIDER_CONFIG", "SMTP host is required", {
+			throw new RoverError("E_MAIL_PROVIDER_CONFIG", "SMTP host is required", {
 				hint: "Set config.host (e.g. process.env.SMTP_HOST). Use the fake / log transports for local development.",
 			});
 		}
@@ -220,7 +220,7 @@ export class SmtpTransport implements MailTransport {
 		// fail fast rather than connect anonymously and let the server reject.
 		if ((user && !pass) || (!user && pass)) {
 			throw new RoverError(
-				"MAIL_PROVIDER_CONFIG",
+				"E_MAIL_PROVIDER_CONFIG",
 				"SMTP auth requires both `user` and `pass` or neither",
 				{
 					hint: "Check your env vars — one half of the credential pair is missing.",
@@ -250,7 +250,7 @@ export class SmtpTransport implements MailTransport {
 			message.bcc.length === 0
 		) {
 			throw new RoverError(
-				"MAIL_PROVIDER_CONFIG",
+				"E_MAIL_PROVIDER_CONFIG",
 				"Mail message has no recipients",
 				{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
 			);
@@ -310,7 +310,7 @@ export class SmtpTransport implements MailTransport {
 }
 
 /**
- * Normalise nodemailer / socket errors into the uniform `MAIL_PROVIDER_ERROR`
+ * Normalise nodemailer / socket errors into the uniform `E_MAIL_PROVIDER_ERROR`
  * shape used by the rest of the library. Preserves the `code` field (errno)
  * in `context.networkCode` so `isRetryableError` can classify transient
  * network failures without losing the root cause.
@@ -333,7 +333,7 @@ function wrapSmtpError(err: unknown): RoverError {
 		ctx.networkCode = anyErr.code;
 	}
 	return new RoverError(
-		"MAIL_PROVIDER_ERROR",
+		"E_MAIL_PROVIDER_ERROR",
 		`SMTP failed: ${anyErr.message ?? "unknown"}`,
 		{
 			hint: "Inspect `context.networkCode` (ECONNRESET/ETIMEDOUT/...) or `context.upstreamStatus` (SMTP response code) to decide retry eligibility.",
@@ -433,7 +433,7 @@ export class Mail {
 			const factory = transportFactories[transportConfig.transport];
 			if (!factory) {
 				throw new RoverError(
-					"MAIL_UNKNOWN_TRANSPORT",
+					"E_MAIL_UNKNOWN_TRANSPORT",
 					`Unknown mail transport type '${transportConfig.transport}' (configured under name '${name}')`,
 					{
 						hint: "Register the transport with registerTransport() before constructing Mail, or fix the typo in config.mail.transports[*].transport.",
@@ -452,7 +452,7 @@ export class Mail {
 		// production. Refuse at construction and name what was declared.
 		if (!this.#transports.has(this.#defaultTransport)) {
 			throw new RoverError(
-				"MAIL_UNKNOWN_MAILER",
+				"E_MAIL_UNKNOWN_MAILER",
 				`Mail default mailer '${this.#defaultTransport}' is not declared in config.mailers`,
 				{
 					hint: `${knownMailers(this.#transports)} Add it, or point \`default\` at one of them.`,
@@ -812,7 +812,7 @@ export class Mail {
 		const transport = this.#transports.get(name);
 		if (transport) return transport;
 		throw new RoverError(
-			"MAIL_UNKNOWN_MAILER",
+			"E_MAIL_UNKNOWN_MAILER",
 			`Mail mailer '${name}' is not declared in config.mailers`,
 			{ hint: knownMailers(this.#transports) },
 		);
@@ -911,7 +911,7 @@ function validateMailMessage(message: MailMessage): void {
 	// invalid per RFC 5321 reverse-path semantics.
 	if (typeof message.from !== "string" || message.from.trim() === "") {
 		throw new RoverError(
-			"MAIL_INVALID_MESSAGE",
+			"E_MAIL_INVALID_MESSAGE",
 			"Mail message has no `from` address",
 			{
 				hint: "Set `config.from`, an instance `from`, or call `message.from(...)` in the builder.",
@@ -922,14 +922,14 @@ function validateMailMessage(message: MailMessage): void {
 	// `to` to be an array (cc/bcc are optional at the queue boundary), so a
 	// deserialised job payload may reach here with `cc`/`bcc` as `undefined`.
 	// `.some(...)` on `undefined` throws `TypeError` instead of the
-	// structured `MAIL_INVALID_MESSAGE` this validator is supposed to surface.
+	// structured `E_MAIL_INVALID_MESSAGE` this validator is supposed to surface.
 	const hasRecipient =
 		(Array.isArray(message.to) && message.to.some(isNonEmptyAddress)) ||
 		(Array.isArray(message.cc) && message.cc.some(isNonEmptyAddress)) ||
 		(Array.isArray(message.bcc) && message.bcc.some(isNonEmptyAddress));
 	if (!hasRecipient) {
 		throw new RoverError(
-			"MAIL_INVALID_MESSAGE",
+			"E_MAIL_INVALID_MESSAGE",
 			"Mail message has no recipients",
 			{
 				hint: "Call `message.to(...)`, `cc(...)`, or `bcc(...)` with a non-empty address before sending.",
@@ -960,12 +960,12 @@ function errorDescriptor(
 	if (err instanceof Error) {
 		const errnoCode = (err as { code?: unknown }).code;
 		return {
-			code: typeof errnoCode === "string" ? errnoCode : "UNKNOWN",
+			code: typeof errnoCode === "string" ? errnoCode : "E_ROVER_UNKNOWN",
 			message: err.message,
 			attempts,
 		};
 	}
-	return { code: "UNKNOWN", message: String(err), attempts };
+	return { code: "E_ROVER_UNKNOWN", message: String(err), attempts };
 }
 
 /** "Declared mailers: a, b." — the half of an unknown-mailer error that helps. */

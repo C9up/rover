@@ -44,7 +44,7 @@ class SpyEmitter implements EmitterLike {
 }
 
 const providerError = (status: number): RoverError =>
-	new RoverError("MAIL_PROVIDER_ERROR", `provider returned ${status}`, {
+	new RoverError("E_MAIL_PROVIDER_ERROR", `provider returned ${status}`, {
 		context: {
 			provider: "test",
 			upstreamStatus: String(status),
@@ -180,7 +180,7 @@ describe("rover > delivery events", () => {
 			error: { code: string; upstreamStatus?: number; attempts: number };
 			to: string[];
 		};
-		expect(data.error.code).toBe("MAIL_PROVIDER_ERROR");
+		expect(data.error.code).toBe("E_MAIL_PROVIDER_ERROR");
 		expect(data.error.upstreamStatus).toBe(503);
 		expect(data.error.attempts).toBe(2);
 		expect(data.to).toEqual(["u@x.com"]);

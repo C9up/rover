@@ -75,13 +75,13 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 		]);
 	});
 
-	it("throws MAIL_PROVIDER_CONFIG when message has no recipients", async () => {
+	it("throws E_MAIL_PROVIDER_CONFIG when message has no recipients", async () => {
 		const transporter = makeFakeTransporter({});
 		const t = new SmtpTransport({ host: "m", _transporter: transporter });
 		const msg = baseMessage();
 		msg.to = [];
 		await expect(t.send(msg)).rejects.toMatchObject({
-			code: "MAIL_PROVIDER_CONFIG",
+			code: "E_MAIL_PROVIDER_CONFIG",
 		});
 	});
 
@@ -92,7 +92,7 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 		const transporter = makeFakeTransporter({ throwError: netErr });
 		const t = new SmtpTransport({ host: "m", _transporter: transporter });
 		await expect(t.send(baseMessage())).rejects.toMatchObject({
-			code: "MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_PROVIDER_ERROR",
 			context: {
 				provider: "smtp",
 				networkCode: "ECONNRESET",

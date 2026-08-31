@@ -215,20 +215,20 @@ mod tests {
     #[test]
     fn unterminated_tag_reports_line() {
         let err = tokenise("ok\n{{ x ").unwrap_err();
-        assert_eq!(err.code.as_str(), "MAIL_TEMPLATE_SYNTAX");
+        assert_eq!(err.code.as_str(), "E_MAIL_TEMPLATE_SYNTAX");
         assert!(err.message.contains("line 2"), "got: {}", err.message);
     }
 
     #[test]
     fn empty_partial_name_is_syntax_error() {
         let err = tokenise("{{> }}").unwrap_err();
-        assert_eq!(err.code.as_str(), "MAIL_TEMPLATE_SYNTAX");
+        assert_eq!(err.code.as_str(), "E_MAIL_TEMPLATE_SYNTAX");
     }
 
     #[test]
     fn double_dot_path_is_syntax_error() {
         let err = tokenise("{{ user..email }}").unwrap_err();
-        assert_eq!(err.code.as_str(), "MAIL_TEMPLATE_SYNTAX");
+        assert_eq!(err.code.as_str(), "E_MAIL_TEMPLATE_SYNTAX");
     }
 
     #[test]
