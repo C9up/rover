@@ -1,6 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+/**
+ * The SendGrid transport, on the wire.
+ *
+ * It used to go through `@sendgrid/mail`, whose flat message shape was its own
+ * invention — the v3 API groups recipients under `personalizations`, and that
+ * is what actually leaves the process. Every assertion here is about that, and
+ * about what happens when SendGrid says no.
+ */
+import { Buffer } from "node:buffer";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
-import { RoverError } from "../../src/RoverError.js";
+import type { RoverError } from "../../src/RoverError.js";
 import { SendGridTransport } from "../../src/transports/SendGridTransport.js";
 
 const baseMessage = (): MailMessage => ({
@@ -15,237 +24,187 @@ const baseMessage = (): MailMessage => ({
 	headers: {},
 });
 
-interface RecordedCall {
-	data: Record<string, unknown>;
+interface SendGridBody {
+	personalizations: Array<{
+		to: Array<{ email: string }>;
+		cc?: Array<{ email: string }>;
+		bcc?: Array<{ email: string }>;
+	}>;
+	from: { email: string };
+	reply_to?: { email: string };
+	subject: string;
+	content: Array<{ type: string; value: string }>;
+	headers?: Record<string, string>;
+	attachments?: Array<{
+		filename: string;
+		content: string;
+		type?: string;
+		disposition: string;
+	}>;
 }
 
-const makeFakeClient = (behaviour: {
-	messageId?: string;
-	throwError?: unknown;
-}): {
-	client: {
-		setApiKey: ReturnType<typeof vi.fn>;
-		send: ReturnType<typeof vi.fn>;
-	};
-	calls: RecordedCall[];
-} => {
-	const calls: RecordedCall[] = [];
-	const setApiKey = vi.fn();
-	const send = vi.fn(async (data: Record<string, unknown>) => {
-		calls.push({ data });
-		if (behaviour.throwError) throw behaviour.throwError;
-		return [
-			{
-				statusCode: 202,
-				headers: behaviour.messageId
-					? { "x-message-id": behaviour.messageId }
-					: {},
-			},
-			{},
-		] as const;
+describe("rover > SendGridTransport", () => {
+	let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+	const body = (): SendGridBody =>
+		JSON.parse(
+			(fetchSpy.mock.calls[0]?.[1] as RequestInit).body as string,
+		) as SendGridBody;
+	const headers = (): Record<string, string> =>
+		(fetchSpy.mock.calls[0]?.[1] as RequestInit).headers as Record<
+			string,
+			string
+		>;
+	const url = (): string => String(fetchSpy.mock.calls[0]?.[0]);
+
+	const accepted = (over: HeadersInit = {}) =>
+		new Response(null, { status: 202, headers: over });
+
+	beforeEach(() => {
+		fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(accepted({ "x-message-id": "sg-abc-xyz" }));
 	});
-	return { client: { setApiKey, send }, calls };
-};
+	afterEach(() => {
+		fetchSpy.mockRestore();
+	});
 
-describe("rover > SendGridTransport (@sendgrid/mail)", () => {
-	it("sets the apiKey on the SDK client and calls send() with shape", async () => {
-		const { client, calls } = makeFakeClient({ messageId: "sg-abc-xyz" });
-		const t = new SendGridTransport({ apiKey: "SG.k", _client: client });
-		expect(client.setApiKey).toHaveBeenCalledWith("SG.k");
+	const transport = (over: Record<string, unknown> = {}) =>
+		new SendGridTransport({ apiKey: "SG.k", ...over });
 
-		const result = await t.send(baseMessage());
-		expect(calls).toHaveLength(1);
-		expect(calls[0].data.from).toBe("sender@example.com");
-		expect(calls[0].data.to).toEqual(["user@example.com"]);
-		expect(calls[0].data.subject).toBe("Hello");
-		// SendGrid v3 canonical shape: `content` array holding text + html.
-		const content = calls[0].data.content as Array<{
-			type: string;
-			value: string;
-		}>;
-		expect(content).toContainEqual({ type: "text/plain", value: "Hi" });
-		expect(content).toContainEqual({ type: "text/html", value: "<p>Hi</p>" });
+	it("posts to the v3 endpoint with the key as a bearer token", async () => {
+		const result = await transport().send(baseMessage());
+
+		expect(url()).toBe("https://api.sendgrid.com/v3/mail/send");
+		expect(headers().Authorization).toBe("Bearer SG.k");
+		expect(body().from.email).toBe("sender@example.com");
+		expect(body().personalizations[0].to).toEqual([
+			{ email: "user@example.com" },
+		]);
+		expect(body().subject).toBe("Hello");
 		expect(result).toEqual({ providerId: "sg-abc-xyz" });
 	});
 
-	it("forwards cc, bcc, replyTo, custom headers, and base64 attachments", async () => {
-		const { client, calls } = makeFakeClient({});
-		const t = new SendGridTransport({ apiKey: "k", _client: client });
-		const msg = baseMessage();
-		msg.cc = ["cc@x.com"];
-		msg.bcc = ["bcc@x.com"];
-		msg.replyTo = "reply@x.com";
-		msg.headers = { "X-Campaign": "summer" };
-		msg.attachments = [
-			{ filename: "a.pdf", content: "BYTES", contentType: "application/pdf" },
-		];
-		await t.send(msg);
+	it("groups cc and bcc under the personalization, not at the top level", async () => {
+		await transport().send({
+			...baseMessage(),
+			cc: ["cc@example.com"],
+			bcc: ["bcc@example.com"],
+			replyTo: "reply@example.com",
+			headers: { "X-Campaign": "spring" },
+			attachments: [
+				{
+					filename: "invoice.pdf",
+					content: Buffer.from("%PDF-1.4"),
+					contentType: "application/pdf",
+				},
+			],
+		});
 
-		const data = calls[0].data;
-		expect(data.cc).toEqual(["cc@x.com"]);
-		expect(data.bcc).toEqual(["bcc@x.com"]);
-		expect(data.replyTo).toBe("reply@x.com");
-		expect(data.headers).toEqual({ "X-Campaign": "summer" });
-		const atts = data.attachments as Array<{
-			filename: string;
-			content: string;
-			type?: string;
-			disposition: string;
-		}>;
-		expect(atts[0]).toEqual({
-			filename: "a.pdf",
-			content: Buffer.from("BYTES").toString("base64"),
+		const [personalization] = body().personalizations;
+		expect(personalization.cc).toEqual([{ email: "cc@example.com" }]);
+		expect(personalization.bcc).toEqual([{ email: "bcc@example.com" }]);
+		expect(body().reply_to).toEqual({ email: "reply@example.com" });
+		expect(body().headers).toEqual({ "X-Campaign": "spring" });
+		expect(body().attachments?.[0]).toEqual({
+			filename: "invoice.pdf",
+			content: Buffer.from("%PDF-1.4").toString("base64"),
 			type: "application/pdf",
 			disposition: "attachment",
 		});
 	});
 
-	it("throws E_MAIL_PROVIDER_CONFIG when message has no recipients", async () => {
-		const { client } = makeFakeClient({});
-		const t = new SendGridTransport({ apiKey: "k", _client: client });
-		const msg = baseMessage();
-		msg.to = [];
-		await expect(t.send(msg)).rejects.toMatchObject({
-			code: "E_MAIL_PROVIDER_CONFIG",
+	it("emits only the content parts that exist", async () => {
+		await transport().send({ ...baseMessage(), text: "" });
+
+		expect(body().content).toEqual([{ type: "text/html", value: "<p>Hi</p>" }]);
+	});
+
+	it("emits both parts, plain text first", async () => {
+		await transport().send(baseMessage());
+
+		expect(body().content).toEqual([
+			{ type: "text/plain", value: "Hi" },
+			{ type: "text/html", value: "<p>Hi</p>" },
+		]);
+	});
+
+	it("strips CRLF everywhere a header could be injected", async () => {
+		await transport().send({
+			...baseMessage(),
+			to: ["user@example.com\r\nBcc: attacker@evil.test"],
+			subject: "Hello\r\nX-Injected: 1",
+			replyTo: "reply@example.com\r\n",
+			headers: { "X-Tag": "one\r\ntwo" },
+			attachments: [{ filename: "a\r\nb.pdf", content: Buffer.from("x") }],
 		});
+
+		const sent = JSON.stringify(body());
+		expect(sent).not.toMatch(/[\r\n]/);
 	});
 
-	it("wraps SDK errors into E_MAIL_PROVIDER_ERROR with upstreamStatus + body", async () => {
-		const sgErr = Object.assign(new Error("Unauthorized"), {
-			code: 401,
-			response: {
-				statusCode: 401,
-				body: { errors: [{ message: "invalid api key" }] },
-				headers: {},
-			},
-		});
-		const { client } = makeFakeClient({ throwError: sgErr });
-		const t = new SendGridTransport({ apiKey: "bad", _client: client });
-		await expect(t.send(baseMessage())).rejects.toMatchObject({
-			code: "E_MAIL_PROVIDER_ERROR",
-			context: {
-				provider: "sendgrid",
-				upstreamStatus: "401",
-				providerMessage: expect.stringContaining("invalid api key"),
-			},
-		});
+	it("refuses a message with no recipients at all", async () => {
+		await expect(
+			transport().send({ ...baseMessage(), to: [], cc: [], bcc: [] }),
+		).rejects.toThrow(/no recipients/);
+		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
-	it("captures Retry-After header from SDK error headers", async () => {
-		const sgErr = Object.assign(new Error("Rate limit"), {
-			code: 429,
-			response: {
-				statusCode: 429,
-				body: "rate-limited",
-				headers: { "retry-after": "60" },
-			},
-		});
-		const { client } = makeFakeClient({ throwError: sgErr });
-		const t = new SendGridTransport({ apiKey: "k", _client: client });
-		await expect(t.send(baseMessage())).rejects.toMatchObject({
-			context: { retryAfter: "60", upstreamStatus: "429" },
-		});
+	it("wraps a refusal, carrying the status and the body", async () => {
+		fetchSpy.mockResolvedValue(
+			new Response('{"errors":[{"message":"bad request"}]}', { status: 400 }),
+		);
+
+		const error = (await transport()
+			.send(baseMessage())
+			.catch((e: unknown) => e)) as RoverError;
+
+		expect(error.code).toBe("E_MAIL_PROVIDER_ERROR");
+		expect(error.context?.upstreamStatus).toBe("400");
+		expect(error.context?.providerMessage).toContain("bad request");
 	});
 
-	it("wraps errors as RoverError instances", async () => {
-		const { client } = makeFakeClient({
-			throwError: Object.assign(new Error("boom"), { code: 500 }),
-		});
-		const t = new SendGridTransport({ apiKey: "k", _client: client });
-		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(RoverError);
+	it("passes Retry-After up so the backoff can honour it", async () => {
+		fetchSpy.mockResolvedValue(
+			new Response("slow down", {
+				status: 429,
+				headers: { "retry-after": "17" },
+			}),
+		);
+
+		const error = (await transport()
+			.send(baseMessage())
+			.catch((e: unknown) => e)) as RoverError;
+
+		expect(error.context?.retryAfter).toBe("17");
 	});
 
-	it("throws config error when apiKey is missing", () => {
-		expect(() => new SendGridTransport({})).toThrow("apiKey");
+	it("keeps a network failure classifiable for retry", async () => {
+		fetchSpy.mockRejectedValue(
+			Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }),
+		);
+
+		const error = (await transport()
+			.send(baseMessage())
+			.catch((e: unknown) => e)) as RoverError;
+
+		expect(error.code).toBe("E_MAIL_PROVIDER_ERROR");
+		expect(error.context?.networkCode).toBe("ECONNRESET");
 	});
 
-	it("trims CRLF/whitespace from apiKey config", () => {
-		const { client } = makeFakeClient({});
-		const _t = new SendGridTransport({ apiKey: "SG.abc\n", _client: client });
-		expect(client.setApiKey).toHaveBeenCalledWith("SG.abc");
-		void _t;
+	it("answers no providerId when the response carries no message id", async () => {
+		fetchSpy.mockResolvedValue(accepted());
+
+		expect(await transport().send(baseMessage())).toBeUndefined();
 	});
 
-	it("strips CRLF from `to`, `subject`, `replyTo`, headers, attachment meta (AC 6)", async () => {
-		const { client, calls } = makeFakeClient({});
-		const t = new SendGridTransport({ apiKey: "k", _client: client });
-		const msg = baseMessage();
-		msg.to = ["u@x.com\r\nX-Injected: evil"];
-		msg.subject = "Hi\r\nBcc: victim@y.com";
-		msg.replyTo = "r@x.com\r\nInj: yes";
-		msg.headers = { "X-Camp\r\nHdr": "val\r\nBcc: victim@z.com" };
-		msg.attachments = [
-			{
-				filename: "f.pdf\r\nX-Evil: 1",
-				content: "x",
-				contentType: "application/pdf\r\nX-Evil: 2",
-			},
-		];
-		await t.send(msg);
-
-		const data = calls[0].data;
-		expect(data.to).toEqual(["u@x.comX-Injected: evil"]);
-		expect(data.subject).toBe("HiBcc: victim@y.com");
-		expect(data.replyTo).toBe("r@x.comInj: yes");
-		expect(data.headers).toEqual({ "X-CampHdr": "valBcc: victim@z.com" });
-		const atts = data.attachments as Array<{
-			filename: string;
-			type?: string;
-		}>;
-		expect(atts[0].filename).toBe("f.pdfX-Evil: 1");
-		expect(atts[0].type).toBe("application/pdfX-Evil: 2");
+	it("refuses to exist without an apiKey", () => {
+		expect(() => new SendGridTransport({})).toThrow(/requires apiKey/);
 	});
 
-	it("wraps bare Error (no HTTP response) with networkCode for retry", async () => {
-		const netErr = Object.assign(new Error("socket hang up"), {
-			code: "ECONNRESET",
-		});
-		const { client } = makeFakeClient({ throwError: netErr });
-		const t = new SendGridTransport({ apiKey: "k", _client: client });
-		await expect(t.send(baseMessage())).rejects.toMatchObject({
-			code: "E_MAIL_PROVIDER_ERROR",
-			context: {
-				provider: "sendgrid",
-				upstreamStatus: "0",
-				networkCode: "ECONNRESET",
-			},
-		});
-	});
+	it("trims whitespace and CRLF out of the key", async () => {
+		await new SendGridTransport({ apiKey: " SG.k\r\n" }).send(baseMessage());
 
-	it("emits content[] with only the parts present (html-only, no empty text)", async () => {
-		const { client, calls } = makeFakeClient({});
-		const t = new SendGridTransport({ apiKey: "k", _client: client });
-		const msg = baseMessage();
-		msg.text = undefined;
-		await t.send(msg);
-
-		const content = calls[0].data.content as Array<{
-			type: string;
-			value: string;
-		}>;
-		expect(content).toHaveLength(1);
-		expect(content[0]).toEqual({ type: "text/html", value: "<p>Hi</p>" });
-	});
-
-	it("does not crash when SDK returns `[undefined, body]`", async () => {
-		const client = {
-			setApiKey: vi.fn(),
-			send: vi.fn(
-				async () =>
-					[undefined, {}] as unknown as [
-						{ statusCode: number; headers: Record<string, string | string[]> },
-						unknown,
-					],
-			),
-		};
-		const t = new SendGridTransport({ apiKey: "k", _client: client });
-		await expect(t.send(baseMessage())).resolves.toBeUndefined();
-	});
-
-	it("returns undefined providerId when the SDK response has no X-Message-Id", async () => {
-		const { client } = makeFakeClient({ messageId: undefined });
-		const t = new SendGridTransport({ apiKey: "k", _client: client });
-		const result = await t.send(baseMessage());
-		expect(result).toBeUndefined();
+		expect(headers().Authorization).toBe("Bearer SG.k");
 	});
 });

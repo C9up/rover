@@ -1,7 +1,3 @@
-import sgMail, {
-	type MailDataRequired,
-	type MailService,
-} from "@sendgrid/mail";
 import {
 	type MailMessage,
 	type MailSendOutcome,
@@ -10,6 +6,7 @@ import {
 } from "../Mail.js";
 import { attachmentsFor, headerValue } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
+import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
 const normalizeConfig = (v: string): string => stripCrlf(v).trim();
@@ -24,26 +21,9 @@ const redactSecrets = (s: string): string =>
 		.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer [REDACTED]")
 		.replace(/Basic\s+[A-Za-z0-9+/=]+/g, "Basic [REDACTED]");
 
-/**
- * Minimal slice of the SendGrid client we depend on. A per-transport client
- * instance is created in the constructor so concurrent transports with
- * different API keys cannot race each other — the original module-level
- * `sgMail.setApiKey()` would have been a multi-tenant foot-gun.
- */
-interface SendGridClientLike {
-	setApiKey(apiKey: string): void;
-	send(
-		data: MailDataRequired,
-	): Promise<
-		[
-			{ statusCode: number; headers: Record<string, string | string[]> },
-			unknown,
-		]
-	>;
-}
-
 export class SendGridTransport implements MailTransport {
-	#client: SendGridClientLike;
+	#apiKey: string;
+	#baseUrl: string;
 
 	constructor(config: Record<string, unknown>) {
 		const apiKey =
@@ -56,86 +36,96 @@ export class SendGridTransport implements MailTransport {
 			);
 		}
 
-		// Dependency injection for tests — stronger guard than the old version
-		// (require both `send` AND `setApiKey` to pass through).
-		const injected = config._client;
-		if (
-			injected &&
-			typeof injected === "object" &&
-			typeof (injected as SendGridClientLike).send === "function" &&
-			typeof (injected as SendGridClientLike).setApiKey === "function"
-		) {
-			this.#client = injected as SendGridClientLike;
-		} else {
-			// Per-instance MailService (not the shared `sgMail` singleton) so
-			// `setApiKey` can't race across multiple transports.
-			this.#client = new (resolveMailServiceCtor(sgMail))();
-		}
-		this.#client.setApiKey(apiKey);
+		this.#apiKey = apiKey;
+		this.#baseUrl =
+			typeof config.baseUrl === "string" && config.baseUrl.length > 0
+				? normalizeConfig(config.baseUrl).replace(/\/+$/, "")
+				: "https://api.sendgrid.com";
 	}
 
 	async send(message: MailMessage): Promise<MailSendOutcome> {
 		assertHasRecipients(message);
-		const content = buildSendGridContent(message);
 
-		// CRLF stripping at the wire boundary (defence-in-depth, matches the
-		// Dev Notes anti-pattern: never trust the SDK to handle it).
-		const data: MailDataRequired = {
-			from: stripCrlf(message.from),
-			to: message.to.map(stripCrlf),
-			subject: stripCrlf(message.subject),
-			content,
-			...(message.cc.length ? { cc: message.cc.map(stripCrlf) } : {}),
-			...(message.bcc.length ? { bcc: message.bcc.map(stripCrlf) } : {}),
-			...(message.replyTo ? { replyTo: stripCrlf(message.replyTo) } : {}),
-			...(Object.keys(message.headers).length
-				? {
-						headers: Object.fromEntries(
-							Object.entries(message.headers).map(([k, raw]) => {
-								const v = headerValue(raw);
-								return [
-									stripCrlf(k),
-									Array.isArray(v) ? v.map(stripCrlf).join(", ") : stripCrlf(v),
-								];
-							}),
-						),
-					}
-				: {}),
-			...(attachmentsFor(message).length
-				? {
-						attachments: attachmentsFor(message).map((att) => {
-							const entry: {
-								filename: string;
-								content: string;
-								type?: string;
-								disposition: "attachment";
-							} = {
-								filename: stripCrlf(att.filename),
-								content: Buffer.from(att.content as Buffer | string).toString(
-									"base64",
-								),
-								disposition: "attachment" as const,
-							};
-							if (att.contentType) entry.type = stripCrlf(att.contentType);
-							return entry;
-						}),
-					}
-				: {}),
+		// CRLF is stripped at the wire boundary regardless of what the provider
+		// promises — a header injected through a recipient or a subject is the
+		// one thing a transport must never pass on.
+		const address = (value: string): { email: string } => ({
+			email: stripCrlf(value),
+		});
+		const personalization: Record<string, unknown> = {
+			// `to` may be empty when a message is bcc-only, which SendGrid allows.
+			to: message.to.map(address),
 		};
+		if (message.cc.length) personalization.cc = message.cc.map(address);
+		if (message.bcc.length) personalization.bcc = message.bcc.map(address);
 
-		try {
-			const result = await this.#client.send(data);
-			// Guard against non-standard SDK responses: `[]`, `[undefined]`, etc.
-			const response = Array.isArray(result) ? result[0] : undefined;
-			const msgId = response?.headers?.["x-message-id"];
-			const idStr = Array.isArray(msgId) ? msgId[0] : msgId;
-			if (idStr && typeof idStr === "string" && idStr.length > 0) {
-				return { providerId: idStr };
-			}
-			return undefined;
-		} catch (err) {
-			throw wrapSendGridError(err);
+		const body: Record<string, unknown> = {
+			// The v3 API groups recipients under `personalizations`; the SDK's
+			// flat shape was its own, and this is what actually goes on the wire.
+			personalizations: [personalization],
+			from: address(message.from),
+			subject: stripCrlf(message.subject),
+			content: buildSendGridContent(message),
+		};
+		if (message.replyTo) body.reply_to = address(message.replyTo);
+		if (Object.keys(message.headers).length) {
+			body.headers = Object.fromEntries(
+				Object.entries(message.headers).map(([k, raw]) => {
+					const v = headerValue(raw);
+					return [
+						stripCrlf(k),
+						Array.isArray(v) ? v.map(stripCrlf).join(", ") : stripCrlf(v),
+					];
+				}),
+			);
 		}
+		const attachments = attachmentsFor(message);
+		if (attachments.length > 0) {
+			body.attachments = attachments.map((att) => {
+				const entry: Record<string, string> = {
+					filename: stripCrlf(att.filename),
+					content: Buffer.from(att.content as Buffer | string).toString(
+						"base64",
+					),
+					disposition: "attachment",
+				};
+				if (att.contentType) entry.type = stripCrlf(att.contentType);
+				return entry;
+			});
+		}
+
+		let res: Response;
+		try {
+			res = await fetchWithTimeout(
+				"SendGrid",
+				`${this.#baseUrl}/v3/mail/send`,
+				{
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${this.#apiKey}`,
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify(body),
+				},
+			);
+		} catch (err) {
+			throw wrapFetchNetworkError("sendgrid", err);
+		}
+
+		if (!res.ok) {
+			// Shaped as the mapper already reads it, so the mapping stays one
+			// piece of logic rather than two that can drift.
+			throw wrapSendGridError({
+				response: {
+					statusCode: res.status,
+					body: await res.text(),
+					headers: Object.fromEntries(res.headers.entries()),
+				},
+			});
+		}
+		// A 202 carries no body; the id is in the header.
+		const id = res.headers.get("x-message-id");
+		return id !== null && id.length > 0 ? { providerId: id } : undefined;
 	}
 }
 
@@ -158,7 +148,7 @@ function assertHasRecipients(message: MailMessage): void {
 /**
  * Build the SendGrid v3 `content[]`: text/plain when text is set, text/html when
  * html is set, always at least one entry (SendGrid rejects empty content). The
- * non-empty tuple type lets the SDK's MailDataRequired see `content[0]` exists.
+ * At least one entry always: SendGrid refuses a message with empty content.
  */
 function buildSendGridContent(
 	message: MailMessage,
@@ -177,7 +167,9 @@ function buildSendGridContent(
 
 function wrapSendGridError(err: unknown): RoverError {
 	if (err instanceof RoverError) return err;
-	// @sendgrid/mail throws `{ code, message, response: { body, headers, statusCode } }`
+	// Built from the HTTP response here, but the older SDK shape
+	// (`{ code, message, response: { body, headers, statusCode } }`) is still
+	// accepted so an injected fake or a wrapped error maps the same way.
 	const anyErr = err as {
 		code?: number | string;
 		message?: string;
@@ -220,29 +212,6 @@ function wrapSendGridError(err: unknown): RoverError {
 		{
 			hint: "Inspect `context.upstreamStatus` (HTTP) or `context.networkCode` (ECONNRESET/etc.) to decide retry eligibility. `context.retryAfter` (when set) carries the provider's backoff hint in seconds.",
 			context: ctx,
-		},
-	);
-}
-
-/**
- * Type-guard resolver for the `MailService` constructor attached to the
- * module's default export at runtime. The cerebrum forbids `as unknown as T`;
- * here we receive `sgMail` through a parameter typed `unknown`, narrow with
- * runtime `typeof` checks, and return a single cast to a precise callable
- * type. No double-cast chain, no `as unknown` anchor.
- */
-function resolveMailServiceCtor(mod: unknown): new () => MailService {
-	if (mod && typeof mod === "object" && "MailService" in mod) {
-		const candidate = (mod as { MailService: unknown }).MailService;
-		if (typeof candidate === "function") {
-			return candidate as new () => MailService;
-		}
-	}
-	throw new RoverError(
-		"E_MAIL_PROVIDER_CONFIG",
-		"@sendgrid/mail runtime does not expose `.MailService` — upgrade to v8+",
-		{
-			hint: "Expected `module.exports.MailService` to be the MailService class (index.js attaches it).",
 		},
 	);
 }
