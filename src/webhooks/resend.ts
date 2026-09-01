@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { emitSafely } from "../emitSafely.js";
 import type {
 	WebhookEmitter,
 	WebhookHttpContext,
@@ -176,7 +177,7 @@ function emitMappedEvent(
 		? (payload.data.to[0] ?? "")
 		: (payload.data?.to ?? "");
 	try {
-		emitter.emit(mapped, {
+		emitSafely(emitter, mapped, {
 			messageId: payload.data?.email_id ?? "",
 			to,
 			reason: payload.data?.reason,

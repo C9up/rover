@@ -72,7 +72,11 @@ export interface MailTransport {
  * Rover never hard-imports the event bus.
  */
 export interface EmitterLike {
-	emit(event: string, data: unknown): void;
+	/**
+	 * `unknown`, not `void`: a `void` return ACCEPTS a promise-returning
+	 * function, which is how an Adonis emitter's rejection went unnoticed.
+	 */
+	emit(event: string, data: unknown): unknown;
 }
 
 /**

@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { createPublicKey, verify } from "node:crypto";
+import { emitSafely } from "../emitSafely.js";
 import type {
 	WebhookEmitter,
 	WebhookHttpContext,
@@ -101,7 +102,7 @@ export function createSendGridWebhookHandler(
 			const mapped = EVENT_MAP[ev.event];
 			if (!mapped) continue;
 			try {
-				emitter.emit(mapped, {
+				emitSafely(emitter, mapped, {
 					messageId: ev.sg_message_id ?? "",
 					to: ev.email ?? "",
 					reason: ev.reason,

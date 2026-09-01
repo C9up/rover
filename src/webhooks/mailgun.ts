@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { emitSafely } from "../emitSafely.js";
 import type {
 	WebhookEmitter,
 	WebhookHttpContext,
@@ -94,7 +95,7 @@ export function createMailgunWebhookHandler(
 		const eventName = EVENT_MAP[data.event];
 		if (eventName) {
 			try {
-				emitter.emit(eventName, {
+				emitSafely(emitter, eventName, {
 					messageId: data.message?.headers?.["message-id"] ?? "",
 					to: data.recipient ?? "",
 					reason: data.reason,

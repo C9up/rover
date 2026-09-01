@@ -37,5 +37,13 @@ export type WebhookMiddleware = (
 ) => Promise<void>;
 
 export interface WebhookEmitter {
-	emit(event: string, data: unknown): void;
+	/**
+	 * `unknown`, not `void`. `@adonisjs/events` declares
+	 * `emit(): Promise<void>` and rethrows when a listener fails and no error
+	 * handler is registered — and a `void` return ACCEPTS a promise-returning
+	 * function, so the call site reads as if there were nothing to handle.
+	 * Duck-typed, so it stays wider than Adonis's own class: a Node
+	 * EventEmitter returns boolean.
+	 */
+	emit(event: string, data: unknown): unknown;
 }

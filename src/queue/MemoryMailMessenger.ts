@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { emitSafely } from "../emitSafely.js";
 import type { EmitterLike, MailMessage } from "../Mail.js";
 import type { MailDispatcher } from "./MailJob.js";
 
@@ -24,20 +25,20 @@ export class MemoryMailMessenger {
 			this.#dispatcher
 				.dispatchMessage(message, transport)
 				.catch((error: unknown) => {
-					if (!this.#emitter) return;
-					try {
-						this.#emitter.emit("queued:mail:error", {
-							jobId,
-							transportName: transport,
-							error:
-								error instanceof Error
-									? { message: error.message }
-									: { message: String(error) },
-						});
-					} catch {
-						// Event bus failure ≠ mail failure — swallow so the microtask
-						// never rejects.
-					}
+					// The try/catch here only ever caught a listener that threw
+					// SYNCHRONOUSLY. An Adonis emitter's `emit` is async and
+					// rethrows when a listener fails and no error handler is
+					// registered, so an async one rejected inside a microtask
+					// nobody awaits — the failure notification taking the process
+					// down after the mail had already failed.
+					emitSafely(this.#emitter, "queued:mail:error", {
+						jobId,
+						transportName: transport,
+						error:
+							error instanceof Error
+								? { message: error.message }
+								: { message: String(error) },
+					});
 				});
 		});
 		return jobId;
