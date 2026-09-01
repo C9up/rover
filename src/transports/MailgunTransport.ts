@@ -1,6 +1,3 @@
-import formData from "form-data";
-// mailgun.js is UMD-bundled; the class lives on `.default` under NodeNext.
-import MailgunModule from "mailgun.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
@@ -9,6 +6,7 @@ import {
 } from "../Mail.js";
 import { attachmentsFor, headerValue } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
+import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
 const normalizeConfig = (v: string): string => stripCrlf(v).trim();
@@ -23,19 +21,10 @@ const redactSecrets = (s: string): string =>
 		.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer [REDACTED]")
 		.replace(/Basic\s+[A-Za-z0-9+/=]+/g, "Basic [REDACTED]");
 
-/** Minimal mailgun.js client surface — matches the subset we need. */
-interface MailgunClientLike {
-	messages: {
-		create(
-			domain: string,
-			data: Record<string, unknown>,
-		): Promise<{ id?: string; message?: string; status?: number }>;
-	};
-}
-
 export class MailgunTransport implements MailTransport {
-	#client: MailgunClientLike;
+	#apiKey: string;
 	#domain: string;
+	#baseUrl: string;
 
 	constructor(config: Record<string, unknown>) {
 		const apiKey =
@@ -78,24 +67,11 @@ export class MailgunTransport implements MailTransport {
 				? "https://api.eu.mailgun.net"
 				: "https://api.mailgun.net";
 
-		// Dependency injection for tests: `_client` wins over real SDK. Guarded
-		// against non-object and non-shape inputs so a typo'd config can't
-		// silently bypass the real client.
-		const injected = config._client;
-		if (
-			injected &&
-			typeof injected === "object" &&
-			"messages" in (injected as object) &&
-			typeof (injected as MailgunClientLike).messages?.create === "function"
-		) {
-			this.#client = injected as MailgunClientLike;
-		} else {
-			// mailgun.js ships a UMD-style default export; the class constructor
-			// lives on `.default` in the typings (`static get default`).
-			const MailgunCtor = MailgunModule.default;
-			const mailgun = new MailgunCtor(formData);
-			this.#client = mailgun.client({ username: "api", key: apiKey, url });
-		}
+		this.#apiKey = apiKey;
+		this.#baseUrl =
+			typeof config.baseUrl === "string" && config.baseUrl.length > 0
+				? normalizeConfig(config.baseUrl).replace(/\/+$/, "")
+				: url;
 	}
 
 	async send(message: MailMessage): Promise<MailSendOutcome> {
@@ -134,38 +110,70 @@ export class MailgunTransport implements MailTransport {
 				? v.map(stripCrlf).join(", ")
 				: stripCrlf(v);
 		}
-		if (attachmentsFor(message).length > 0) {
-			data.attachment = attachmentsFor(message).map((att) => {
-				const entry: { filename: string; data: Buffer; contentType?: string } =
-					{
-						filename: stripCrlf(att.filename),
-						data: Buffer.from(att.content as Buffer | string),
-					};
-				if (att.contentType) {
-					entry.contentType = stripCrlf(att.contentType);
-				}
-				return entry;
-			});
+		// Mailgun takes `multipart/form-data`; Node builds it, and `fetch` sets
+		// the boundary. Scalars first, then one file part per attachment.
+		const form = new FormData();
+		for (const [key, value] of Object.entries(data)) {
+			form.append(key, Array.isArray(value) ? value.join(", ") : String(value));
+		}
+		for (const att of attachmentsFor(message)) {
+			const bytes = Buffer.from(att.content as Buffer | string);
+			const blob = att.contentType
+				? new Blob([bytes], { type: stripCrlf(att.contentType) })
+				: new Blob([bytes]);
+			form.append("attachment", blob, stripCrlf(att.filename));
 		}
 
+		let res: Response;
 		try {
-			const res = await this.#client.messages.create(this.#domain, data);
-			if (res.id) return { providerId: res.id };
-			return undefined;
+			res = await fetchWithTimeout(
+				"Mailgun",
+				`${this.#baseUrl}/v3/${encodeURIComponent(this.#domain)}/messages`,
+				{
+					method: "POST",
+					headers: {
+						// HTTP Basic, the username is literally `api`.
+						Authorization: `Basic ${Buffer.from(`api:${this.#apiKey}`).toString("base64")}`,
+						Accept: "application/json",
+					},
+					body: form,
+				},
+			);
 		} catch (err) {
-			throw wrapMailgunError(err);
+			throw wrapFetchNetworkError("mailgun", err);
+		}
+
+		const raw = await res.text();
+		if (!res.ok) {
+			throw wrapMailgunError({
+				status: res.status,
+				message: raw,
+				headers: Object.fromEntries(res.headers.entries()),
+			});
+		}
+		// A 200 carries `{ id, message }`; anything unparseable is still a
+		// success on the wire, so it is not turned into an error.
+		try {
+			const parsed: unknown = JSON.parse(raw);
+			const id =
+				typeof parsed === "object" && parsed !== null
+					? Reflect.get(parsed, "id")
+					: undefined;
+			return typeof id === "string" ? { providerId: id } : undefined;
+		} catch {
+			return undefined;
 		}
 	}
 }
 
 /**
- * mailgun.js's own error shape is `{ status, details | message, ... }`.
- * Map it to our uniform `E_MAIL_PROVIDER_ERROR` so retry + observability
- * consumers don't need to branch on provider.
+ * Map an upstream refusal onto the uniform `E_MAIL_PROVIDER_ERROR` every
+ * transport raises, so retry and observability never branch on the provider.
  *
- * Bare `Error` (no `status`) — typical for network/ECONNRESET failures from
- * mailgun.js — surface the original errno (`code`) in context so the retry
- * predicate can still classify it as transient.
+ * The shape is what the HTTP response gives: a status, the body as the
+ * message, and the response headers — `Retry-After` among them, which the
+ * backoff honours. A network failure never reaches here; `wrapFetchNetworkError`
+ * carries the errno so the retry predicate can still see it.
  */
 function wrapMailgunError(err: unknown): RoverError {
 	if (err instanceof RoverError) return err;
@@ -176,8 +184,8 @@ function wrapMailgunError(err: unknown): RoverError {
 		code?: string;
 		headers?: Record<string, string | string[]>;
 	};
-	// Coerce string-typed status ("401") into number — mailgun.js is
-	// inconsistent across versions.
+	// Coerce a string-typed status into a number: the field is built here, but
+	// a caller injecting a fake response may still hand one over as text.
 	const statusNum = Number(anyErr.status);
 	const status = Number.isFinite(statusNum) ? statusNum : 0;
 	const providerMessage = redactSecrets(

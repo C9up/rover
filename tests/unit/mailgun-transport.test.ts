@@ -1,6 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+/**
+ * The Mailgun transport, on the wire.
+ *
+ * It used to go through `mailgun.js`, which pulled `form-data` in with it —
+ * two dependencies for a multipart POST that Node can build itself. Every
+ * assertion here is about what leaves the process, and about what happens when
+ * Mailgun says no.
+ */
+import { Buffer } from "node:buffer";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
-import { RoverError } from "../../src/RoverError.js";
+import type { RoverError } from "../../src/RoverError.js";
 import { MailgunTransport } from "../../src/transports/MailgunTransport.js";
 
 const baseMessage = (): MailMessage => ({
@@ -15,277 +24,203 @@ const baseMessage = (): MailMessage => ({
 	headers: {},
 });
 
-interface RecordedCall {
-	domain: string;
-	data: Record<string, unknown>;
-}
+describe("rover > MailgunTransport", () => {
+	let fetchSpy: ReturnType<typeof vi.spyOn>;
 
-const makeFakeClient = (behaviour: {
-	id?: string | null;
-	throwError?: unknown;
-}): {
-	client: { messages: { create: ReturnType<typeof vi.fn> } };
-	calls: RecordedCall[];
-} => {
-	const calls: RecordedCall[] = [];
-	const create = vi.fn(
-		async (domain: string, data: Record<string, unknown>) => {
-			calls.push({ domain, data });
-			if (behaviour.throwError) throw behaviour.throwError;
-			// `id: null` = caller opts out explicitly; no key at all means default.
-			const id =
-				behaviour.id === null
-					? undefined
-					: (behaviour.id ?? "<mg-msg-default@mailgun.org>");
-			return id !== undefined ? { id } : {};
-		},
-	);
-	return { client: { messages: { create } }, calls };
-};
+	/** The multipart body of the one call made. */
+	const form = (): FormData =>
+		(fetchSpy.mock.calls[0]?.[1] as RequestInit).body as FormData;
+	const field = (name: string): string => String(form().get(name) ?? "");
+	const url = (): string => String(fetchSpy.mock.calls[0]?.[0]);
+	const headers = (): Record<string, string> =>
+		(fetchSpy.mock.calls[0]?.[1] as RequestInit).headers as Record<
+			string,
+			string
+		>;
 
-describe("rover > MailgunTransport (mailgun.js)", () => {
-	it("calls client.messages.create with domain + from/to/subject/html/text", async () => {
-		const { client, calls } = makeFakeClient({ id: "<mg-1@mailgun.org>" });
-		const t = new MailgunTransport({
-			apiKey: "k",
-			domain: "mg.acme.com",
-			_client: client,
+	const ok = (body: unknown = { id: "<mg-1@example>", message: "Queued" }) =>
+		new Response(JSON.stringify(body), {
+			status: 200,
+			headers: { "content-type": "application/json" },
 		});
-		const result = await t.send(baseMessage());
 
-		expect(calls).toHaveLength(1);
-		expect(calls[0].domain).toBe("mg.acme.com");
-		expect(calls[0].data.from).toBe("sender@example.com");
-		expect(calls[0].data.to).toEqual(["user@example.com"]);
-		expect(calls[0].data.subject).toBe("Hello");
-		expect(calls[0].data.html).toBe("<p>Hi</p>");
-		expect(calls[0].data.text).toBe("Hi");
-		expect(result).toEqual({ providerId: "<mg-1@mailgun.org>" });
+	beforeEach(() => {
+		fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(ok());
+	});
+	afterEach(() => {
+		fetchSpy.mockRestore();
 	});
 
-	it("bcc-only message falls back to the sender for `to` (Mailgun requires it)", async () => {
-		const { client, calls } = makeFakeClient({ id: "<mg-bcc@mailgun.org>" });
-		const t = new MailgunTransport({
-			apiKey: "k",
-			domain: "mg.acme.com",
-			_client: client,
+	const transport = (over: Record<string, unknown> = {}) =>
+		new MailgunTransport({
+			apiKey: "key-1",
+			domain: "mg.example.com",
+			...over,
 		});
-		const msg = baseMessage();
-		msg.to = [];
-		msg.bcc = ["hidden@x.com"];
-		await t.send(msg);
-		// An empty `to` made create() 400 before the fix (audit 2026-06-13).
-		expect(calls[0].data.to).toEqual(["sender@example.com"]);
-		expect(calls[0].data.bcc).toEqual(["hidden@x.com"]);
+
+	it("posts the message to the domain's endpoint", async () => {
+		const result = await transport().send(baseMessage());
+
+		expect(url()).toBe("https://api.mailgun.net/v3/mg.example.com/messages");
+		expect(field("from")).toBe("sender@example.com");
+		expect(field("to")).toBe("user@example.com");
+		expect(field("subject")).toBe("Hello");
+		expect(field("html")).toBe("<p>Hi</p>");
+		expect(field("text")).toBe("Hi");
+		expect(result).toEqual({ providerId: "<mg-1@example>" });
 	});
 
-	it("forwards cc, bcc, replyTo, custom headers, attachments", async () => {
-		const { client, calls } = makeFakeClient({});
-		const t = new MailgunTransport({
-			apiKey: "k",
-			domain: "d",
-			_client: client,
-		});
-		const msg = baseMessage();
-		msg.cc = ["cc@x.com"];
-		msg.bcc = ["bcc@x.com"];
-		msg.replyTo = "reply@x.com";
-		msg.headers = { "X-Campaign": "summer" };
-		msg.attachments = [
-			{ filename: "a.pdf", content: "BYTES", contentType: "application/pdf" },
-		];
-		await t.send(msg);
+	it("authenticates with HTTP Basic, username `api`", async () => {
+		await transport().send(baseMessage());
 
-		const data = calls[0].data;
-		expect(data.cc).toEqual(["cc@x.com"]);
-		expect(data.bcc).toEqual(["bcc@x.com"]);
-		expect(data["h:Reply-To"]).toBe("reply@x.com");
-		expect(data["h:X-Campaign"]).toBe("summer");
-		expect(Array.isArray(data.attachment)).toBe(true);
-		const atts = data.attachment as Array<{
-			filename: string;
-			data: Buffer;
-			contentType?: string;
-		}>;
-		expect(atts[0].filename).toBe("a.pdf");
-		expect(Buffer.isBuffer(atts[0].data)).toBe(true);
-		expect(atts[0].contentType).toBe("application/pdf");
+		const expected = Buffer.from("api:key-1").toString("base64");
+		expect(headers().Authorization).toBe(`Basic ${expected}`);
 	});
 
-	it("throws E_MAIL_PROVIDER_CONFIG when message has no recipients", async () => {
-		const { client } = makeFakeClient({});
-		const t = new MailgunTransport({
-			apiKey: "k",
-			domain: "d",
-			_client: client,
+	it("falls back to the sender for `to` on a bcc-only message", async () => {
+		// Mailgun 400s without a `to`, and a bcc-only message is valid — so the
+		// envelope carries the sender and the bcc list still receives it.
+		await transport().send({
+			...baseMessage(),
+			to: [],
+			bcc: ["hidden@example.com"],
 		});
-		const msg = baseMessage();
-		msg.to = [];
-		await expect(t.send(msg)).rejects.toMatchObject({
-			code: "E_MAIL_PROVIDER_CONFIG",
-		});
+
+		expect(field("to")).toBe("sender@example.com");
+		expect(field("bcc")).toBe("hidden@example.com");
 	});
 
-	it("throws E_MAIL_PROVIDER_ERROR wrapping mailgun.js errors", async () => {
-		const mailgunErr = Object.assign(new Error("Unauthorized"), {
-			status: 401,
-			details: "Invalid api key",
+	it("carries cc, bcc, reply-to, custom headers and attachments", async () => {
+		await transport().send({
+			...baseMessage(),
+			cc: ["cc@example.com"],
+			bcc: ["bcc@example.com"],
+			replyTo: "reply@example.com",
+			headers: { "X-Campaign": "spring" },
+			attachments: [
+				{
+					filename: "invoice.pdf",
+					content: Buffer.from("%PDF-1.4"),
+					contentType: "application/pdf",
+				},
+			],
 		});
-		const { client } = makeFakeClient({ throwError: mailgunErr });
-		const t = new MailgunTransport({
-			apiKey: "bad",
-			domain: "d",
-			_client: client,
-		});
-		await expect(t.send(baseMessage())).rejects.toMatchObject({
-			code: "E_MAIL_PROVIDER_ERROR",
-			context: {
-				provider: "mailgun",
-				upstreamStatus: "401",
-				providerMessage: expect.stringContaining("Invalid api key"),
-			},
-		});
+
+		expect(field("cc")).toBe("cc@example.com");
+		expect(field("bcc")).toBe("bcc@example.com");
+		expect(field("h:Reply-To")).toBe("reply@example.com");
+		expect(field("h:X-Campaign")).toBe("spring");
+
+		const attachment = form().get("attachment");
+		expect(attachment).toBeInstanceOf(Blob);
+		if (attachment instanceof File) {
+			expect(attachment.name).toBe("invoice.pdf");
+			expect(attachment.type).toBe("application/pdf");
+			expect(await attachment.text()).toBe("%PDF-1.4");
+		}
 	});
 
-	it("wraps errors as RoverError instances", async () => {
-		const { client } = makeFakeClient({
-			throwError: Object.assign(new Error("boom"), { status: 500 }),
+	it("strips CRLF everywhere a header could be injected", async () => {
+		await transport().send({
+			...baseMessage(),
+			to: ["user@example.com\r\nBcc: attacker@evil.test"],
+			subject: "Hello\r\nX-Injected: 1",
+			replyTo: "reply@example.com\r\n",
+			headers: { "X-Tag": "one\r\ntwo" },
 		});
-		const t = new MailgunTransport({
-			apiKey: "k",
-			domain: "d",
-			_client: client,
-		});
-		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(RoverError);
+
+		for (const name of ["to", "subject", "h:Reply-To", "h:X-Tag"]) {
+			expect(field(name)).not.toMatch(/[\r\n]/);
+		}
 	});
 
-	it("normalizes region (accepts 'EU' as 'eu', rejects unknown values)", () => {
-		const { client } = makeFakeClient({});
-		expect(
-			() =>
-				new MailgunTransport({
-					apiKey: "k",
-					domain: "d",
-					region: "EU",
-					_client: client,
-				}),
-		).not.toThrow();
-		expect(
-			() =>
-				new MailgunTransport({
-					apiKey: "k",
-					domain: "d",
-					region: "us-east-1",
-					_client: client,
-				}),
-		).toThrow(/must be "us" or "eu"/);
+	it("refuses a message with no recipients at all", async () => {
+		await expect(
+			transport().send({ ...baseMessage(), to: [], cc: [], bcc: [] }),
+		).rejects.toThrow(/no recipients/);
+		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
-	it("trims CRLF/whitespace from config strings", async () => {
-		const { client, calls } = makeFakeClient({});
-		const t = new MailgunTransport({
-			apiKey: "k\n",
-			domain: " d\r\n",
-			region: " us ",
-			_client: client,
+	it("wraps a refusal, carrying the status and the body", async () => {
+		fetchSpy.mockResolvedValue(
+			new Response("Forbidden — domain not verified", { status: 403 }),
+		);
+
+		const error = (await transport()
+			.send(baseMessage())
+			.catch((e: unknown) => e)) as RoverError;
+
+		expect(error.code).toBe("E_MAIL_PROVIDER_ERROR");
+		expect(error.context?.upstreamStatus).toBe("403");
+		expect(error.context?.providerMessage).toContain("not verified");
+	});
+
+	it("passes Retry-After up so the backoff can honour it", async () => {
+		fetchSpy.mockResolvedValue(
+			new Response("slow down", {
+				status: 429,
+				headers: { "retry-after": "42" },
+			}),
+		);
+
+		const error = (await transport()
+			.send(baseMessage())
+			.catch((e: unknown) => e)) as RoverError;
+
+		expect(error.context?.retryAfter).toBe("42");
+	});
+
+	it("keeps a network failure classifiable for retry", async () => {
+		const refused = Object.assign(new Error("connect ECONNREFUSED"), {
+			code: "ECONNREFUSED",
 		});
-		await t.send(baseMessage());
-		expect(calls[0].domain).toBe("d");
+		fetchSpy.mockRejectedValue(refused);
+
+		const error = (await transport()
+			.send(baseMessage())
+			.catch((e: unknown) => e)) as RoverError;
+
+		expect(error.code).toBe("E_MAIL_PROVIDER_ERROR");
+		expect(error.context?.networkCode).toBe("ECONNREFUSED");
 	});
 
-	it("throws config error when apiKey or domain missing", () => {
+	it("answers no providerId when the response carries none", async () => {
+		fetchSpy.mockResolvedValue(ok({ message: "Queued" }));
+
+		expect(await transport().send(baseMessage())).toBeUndefined();
+	});
+
+	it("routes EU traffic to the EU host, whatever the casing", async () => {
+		await transport({ region: "EU" }).send(baseMessage());
+
+		expect(url()).toBe("https://api.eu.mailgun.net/v3/mg.example.com/messages");
+	});
+
+	it("refuses a region it does not know, rather than defaulting to US", async () => {
+		// Silently routing EU traffic to US infrastructure is a compliance
+		// problem, not a typo to paper over.
+		expect(() => transport({ region: "fr" })).toThrow(/must be "us" or "eu"/);
+		expect(() => transport({ region: 42 })).toThrow(/must be a string/);
+	});
+
+	it("trims whitespace and CRLF out of the config", async () => {
+		await new MailgunTransport({
+			apiKey: " key-1\r\n",
+			domain: " mg.example.com ",
+		}).send(baseMessage());
+
+		expect(url()).toBe("https://api.mailgun.net/v3/mg.example.com/messages");
+		expect(headers().Authorization).toBe(
+			`Basic ${Buffer.from("api:key-1").toString("base64")}`,
+		);
+	});
+
+	it("refuses to exist without an apiKey or a domain", () => {
 		expect(() => new MailgunTransport({ domain: "d" })).toThrow(
-			"apiKey and domain",
+			/requires apiKey and domain/,
 		);
 		expect(() => new MailgunTransport({ apiKey: "k" })).toThrow(
-			"apiKey and domain",
+			/requires apiKey and domain/,
 		);
-	});
-
-	it("strips CRLF from `to`, `subject`, `replyTo`, header values, attachment metadata (AC 6)", async () => {
-		const { client, calls } = makeFakeClient({});
-		const t = new MailgunTransport({
-			apiKey: "k",
-			domain: "d",
-			_client: client,
-		});
-		const msg = baseMessage();
-		msg.to = ["u@x.com\r\nX-Injected: evil"];
-		msg.subject = "Hi\r\nBcc: victim@y.com";
-		msg.replyTo = "r@x.com\r\nInj: yes";
-		msg.headers = { "X-Camp\r\nHdr": "val\r\nBcc: victim@z.com" };
-		msg.attachments = [
-			{
-				filename: "f.pdf\r\nX-Evil: 1",
-				content: "x",
-				contentType: "application/pdf\r\nX-Evil: 2",
-			},
-		];
-		await t.send(msg);
-
-		const data = calls[0].data;
-		expect(data.to).toEqual(["u@x.comX-Injected: evil"]);
-		expect(data.subject).toBe("HiBcc: victim@y.com");
-		expect(data["h:Reply-To"]).toBe("r@x.comInj: yes");
-		expect(data["h:X-CampHdr"]).toBe("valBcc: victim@z.com");
-		const atts = data.attachment as Array<{
-			filename: string;
-			contentType?: string;
-		}>;
-		expect(atts[0].filename).toBe("f.pdfX-Evil: 1");
-		expect(atts[0].contentType).toBe("application/pdfX-Evil: 2");
-	});
-
-	it("wraps bare Error (no .status) preserving networkCode for retry", async () => {
-		const netErr = Object.assign(new Error("socket hang up"), {
-			code: "ECONNRESET",
-		});
-		const { client } = makeFakeClient({ throwError: netErr });
-		const t = new MailgunTransport({
-			apiKey: "k",
-			domain: "d",
-			_client: client,
-		});
-		await expect(t.send(baseMessage())).rejects.toMatchObject({
-			code: "E_MAIL_PROVIDER_ERROR",
-			context: {
-				provider: "mailgun",
-				upstreamStatus: "0",
-				networkCode: "ECONNRESET",
-			},
-		});
-	});
-
-	it("coerces string-typed status to number", async () => {
-		const strErr = Object.assign(new Error("Forbidden"), {
-			status: "403",
-			details: "access denied",
-		});
-		const { client } = makeFakeClient({ throwError: strErr });
-		const t = new MailgunTransport({
-			apiKey: "k",
-			domain: "d",
-			_client: client,
-		});
-		await expect(t.send(baseMessage())).rejects.toMatchObject({
-			context: { upstreamStatus: "403" },
-		});
-	});
-
-	it("rejects non-string region (compliance: prevents silent US fallback)", () => {
-		expect(
-			() => new MailgunTransport({ apiKey: "k", domain: "d", region: 42 }),
-		).toThrow(/region must be a string/);
-	});
-
-	it("returns undefined providerId when SDK omits the id", async () => {
-		const { client } = makeFakeClient({ id: null });
-		const t = new MailgunTransport({
-			apiKey: "k",
-			domain: "d",
-			_client: client,
-		});
-		const result = await t.send(baseMessage());
-		expect(result).toBeUndefined();
 	});
 });
