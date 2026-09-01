@@ -341,3 +341,41 @@ describe("rover > compiled senders (AdonisJS parity)", () => {
 		expect(queue.dispatched).toHaveLength(1);
 	});
 });
+
+describe("rover > an event listener that fails asynchronously", () => {
+	it("reports it instead of ending the process, and still delivers", async () => {
+		const written: string[] = [];
+		const originalWrite = process.stderr.write.bind(process.stderr);
+		process.stderr.write = (chunk: string | Uint8Array): boolean => {
+			written.push(String(chunk));
+			return true;
+		};
+		const rejections: unknown[] = [];
+		const onUnhandled = (reason: unknown): void => {
+			rejections.push(reason);
+		};
+		process.on("unhandledRejection", onUnhandled);
+		try {
+			// An Adonis-shaped emitter returns a promise. The try/catch around
+			// emit only ever caught a listener that threw SYNCHRONOUSLY; an
+			// async one rejected with nobody to catch, ending the process over
+			// a notification long after the mail itself went out fine.
+			const emitter: EmitterLike = {
+				emit(): Promise<void> {
+					return Promise.reject(new Error("logging is down"));
+				},
+			};
+			const mail = makeMail("async-listener", new PassTransport(), emitter);
+			await expect(
+				mail.send((m: MessageBuilder) => m.to("u@x.com").subject("Hi")),
+			).resolves.not.toThrow();
+			await new Promise((resolve) => setTimeout(resolve, 10));
+
+			expect(rejections).toEqual([]);
+			expect(written.join("")).toContain("listener failed");
+		} finally {
+			process.stderr.write = originalWrite;
+			process.off("unhandledRejection", onUnhandled);
+		}
+	});
+});

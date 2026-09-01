@@ -735,11 +735,17 @@ export class Mail {
 			);
 		}
 		if (this.#emitter) {
-			try {
-				this.#emitter.emit(name, event);
-			} catch {
-				// Event bus failure ≠ mail delivery failure — swallow.
-			}
+			// Not just `try`: an Adonis-shaped emitter returns a promise, and a
+			// listener that failed asynchronously rejected it with nobody to
+			// catch — an unhandled rejection ending the process over a
+			// notification, long after the mail itself went out fine.
+			void (async () => this.#emitter?.emit(name, event))().catch(
+				(err: unknown) => {
+					process.stderr.write(
+						`[rover] ${name} listener failed: ${err instanceof Error ? err.message : String(err)}\n`,
+					);
+				},
+			);
 		}
 	}
 
