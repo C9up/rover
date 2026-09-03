@@ -228,7 +228,7 @@ function listUrls(value: ListHeader | ListHeader[] | ListHeader[][]): string[] {
 function titleCaseKey(key: string): string {
 	return key
 		.split("-")
-		.map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
 		.join("-");
 }
 

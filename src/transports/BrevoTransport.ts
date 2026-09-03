@@ -165,9 +165,12 @@ export class BrevoTransport implements MailTransport {
 function parseContact(input: string): BrevoContact {
 	const s = stripCrlf(input).trim();
 	const match = s.match(/^(.*)<([^>]+)>\s*$/);
-	if (match) {
-		const email = match[2].trim();
-		const name = match[1].trim().replace(/^"|"$/g, "").trim();
+	// Both groups are required by the pattern, so a match carries both —
+	// named rather than indexed, which is what says so.
+	const [, rawName, rawEmail] = match ?? [];
+	if (rawEmail !== undefined) {
+		const email = rawEmail.trim();
+		const name = (rawName ?? "").trim().replace(/^"|"$/g, "").trim();
 		return name ? { email, name } : { email };
 	}
 	return { email: s };
