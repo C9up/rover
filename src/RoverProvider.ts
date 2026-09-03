@@ -44,9 +44,14 @@ export default class RoverProvider {
 				},
 			);
 		});
-		this.app.container.singleton("mail", () => {
-			return this.app.container.resolve<Mail>(Mail);
-		});
+		// Namespaced by the package that owns it, the way upstream namespaces
+		// `lucid.db`, `auth.manager` and `drive.manager` by theirs. The bare
+		// token stays bound beside it: it is what every existing
+		// `container.make(...)` asks for, and a token is not worth breaking an
+		// application over.
+		const mail = (): Promise<Mail> => this.app.container.resolve<Mail>(Mail);
+		this.app.container.singleton("rover.mail", mail);
+		this.app.container.singleton("mail", mail);
 	}
 
 	async boot() {

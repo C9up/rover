@@ -23,6 +23,11 @@ import type { Mail } from "./Mail.js";
 declare module "@c9up/ream/types" {
 	interface ContainerBindings {
 		/** The mailer, bound by `RoverProvider`. */
+		"rover.mail": Mail;
+		/**
+		 * The same binding under the name it had before the token carried its
+		 * package. Kept bound so an existing `container.make(...)` resolves.
+		 */
 		mail: Mail;
 	}
 }
