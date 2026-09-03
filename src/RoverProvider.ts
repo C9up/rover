@@ -1,3 +1,4 @@
+import "./augmentations.js";
 import type { EmitterLike, MailConfig } from "./Mail.js";
 import { Mail } from "./Mail.js";
 import type { BayQueueLike } from "./queue/MailJob.js";

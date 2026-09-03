@@ -7,6 +7,8 @@
  * for each of them, so each has to be there when the config is read.
  */
 
+import "./augmentations.js";
+
 export type { MailAddress } from "./BaseMail.js";
 export { BaseMail } from "./BaseMail.js";
 export type { TransportDescriptor } from "./config.js";

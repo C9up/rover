@@ -81,7 +81,8 @@
     "@types/node": "*",
     "@types/nodemailer": "^7.0.0",
     "typescript": "^6.0.2",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.2",
+    "@c9up/ream": "^0.2.0"
   },
   "peerDependencies": {
     "@c9up/helix": "^0.2.0",
