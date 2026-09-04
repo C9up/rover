@@ -1,4 +1,7 @@
 import { Buffer } from "node:buffer";
+// The published bay, not the checkout next door: this package is built from
+// its own repository, where `@c9up/bay` can only come from the registry.
+// Move this to ^0.2.0 once bay 0.2.0 ships, to test the queue surface it adds.
 import { MemoryDriver, QueueManager } from "@c9up/bay";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
