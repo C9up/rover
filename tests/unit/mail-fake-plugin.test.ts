@@ -12,8 +12,18 @@ import { FakeMail, mailFake } from "../../src/testing/FakeMail.js";
 const stubInstance: TestInstance = {
 	title: "t",
 	fullName: "t",
-	options: { timeout: 0, retries: 0, tags: [] },
+	options: {
+		title: "t",
+		timeout: 0,
+		retries: 0,
+		tags: [],
+		isTodo: false,
+		isFailing: false,
+		meta: {},
+	},
 	isPinned: false,
+	resetTimeout: () => {},
+	cleanup: () => {},
 };
 
 describe("helix plugin > mailFake()", () => {
@@ -45,13 +55,17 @@ describe("helix plugin > mailFake()", () => {
 
 		// Simulate a test accessing `ctx.mail`: the getter activates the fake and
 		// registers a cleanup that restores the mailer.
-		const cleanups: Array<() => void | Promise<void>> = [];
+		const cleanups: Parameters<TestContext["cleanup"]>[0][] = [];
+		// `mail` is required on `TestContext` because importing this package
+		// augments it — the getter under test is what fills it at run time, so
+		// the stub starts from the fake the getter would install.
 		const ctx: TestContext = {
 			cleanup: (fn) => {
 				cleanups.push(fn);
 			},
 			assert: createAssert(),
 			test: stubInstance,
+			mail: fake,
 		};
 
 		const injected = getter?.(ctx);

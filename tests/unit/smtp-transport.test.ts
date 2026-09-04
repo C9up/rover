@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
 import { SmtpTransport } from "../../src/index.js";
 import { RoverError } from "../../src/RoverError.js";
+import { defined } from "../__helpers__/defined.js";
 
 const baseMessage = (): MailMessage => ({
 	from: "sender@example.com",
@@ -38,7 +39,7 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 		});
 		const result = await t.send(baseMessage());
 		expect(transporter.sendMail).toHaveBeenCalledOnce();
-		const arg = transporter.sendMail.mock.calls[0][0];
+		const arg = defined(transporter.sendMail.mock.calls[0])[0];
 		expect(arg.from).toBe("sender@example.com");
 		expect(arg.to).toEqual(["user@example.com"]);
 		expect(arg.subject).toBe("Hello");
@@ -61,7 +62,7 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 			{ filename: "a.pdf", content: "bytes", contentType: "application/pdf" },
 		];
 		await t.send(msg);
-		const arg = transporter.sendMail.mock.calls[0][0];
+		const arg = defined(transporter.sendMail.mock.calls[0])[0];
 		expect(arg.cc).toEqual(["cc@x.com"]);
 		expect(arg.bcc).toBeUndefined();
 		expect(arg.replyTo).toBe("r@x.com");

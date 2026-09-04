@@ -1,174 +1,176 @@
 {
-  "name": "@c9up/rover",
-  "version": "0.1.17",
-  "description": "Mail transport for Ream \u2014 SMTP, log, and pluggable transports",
-  "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts"
-    },
-    "./provider": {
-      "types": "./src/RoverProvider.ts",
-      "import": "./src/RoverProvider.ts"
-    },
-    "./configure": {
-      "types": "./src/configure.ts",
-      "import": "./src/configure.ts"
-    },
-    "./services/main": {
-      "types": "./src/services/main.ts",
-      "import": "./src/services/main.ts"
-    },
-    "./transports/mailgun": {
-      "types": "./src/transports/MailgunTransport.ts",
-      "import": "./src/transports/MailgunTransport.ts"
-    },
-    "./transports/sendgrid": {
-      "types": "./src/transports/SendGridTransport.ts",
-      "import": "./src/transports/SendGridTransport.ts"
-    },
-    "./transports/ses": {
-      "types": "./src/transports/SesTransport.ts",
-      "import": "./src/transports/SesTransport.ts"
-    },
-    "./transports/resend": {
-      "types": "./src/transports/ResendTransport.ts",
-      "import": "./src/transports/ResendTransport.ts"
-    },
-    "./transports/brevo": {
-      "types": "./src/transports/BrevoTransport.ts",
-      "import": "./src/transports/BrevoTransport.ts"
-    },
-    "./transports/sparkpost": {
-      "types": "./src/transports/SparkPostTransport.ts",
-      "import": "./src/transports/SparkPostTransport.ts"
-    },
-    "./testing": {
-      "types": "./src/testing/FakeMail.ts",
-      "import": "./src/testing/FakeMail.ts"
-    },
-    "./webhooks/mailgun": {
-      "types": "./src/webhooks/mailgun.ts",
-      "import": "./src/webhooks/mailgun.ts"
-    },
-    "./webhooks/sendgrid": {
-      "types": "./src/webhooks/sendgrid.ts",
-      "import": "./src/webhooks/sendgrid.ts"
-    },
-    "./webhooks/resend": {
-      "types": "./src/webhooks/resend.ts",
-      "import": "./src/webhooks/resend.ts"
-    }
-  },
-  "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "build:napi": "cargo build --release -p rover-template-engine-napi && pnpm build:napi-types && node scripts/copy-napi.mjs",
-    "build:napi-types": "node scripts/build-napi-types.mjs",
-    "test": "vitest run",
-    "lint": "biome check src/",
-    "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "nodemailer": "^9.0.1"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^2.4.10",
-    "@c9up/helix": "^0.2.0",
-    "@types/node": "*",
-    "@types/nodemailer": "^7.0.0",
-    "typescript": "^6.0.2",
-    "vitest": "^4.1.2",
-    "@c9up/ream": "^0.2.0"
-  },
-  "peerDependencies": {
-    "@c9up/helix": "^0.2.0",
-    "@c9up/ream": "^0.2.0"
-  },
-  "peerDependenciesMeta": {
-    "@c9up/helix": {
-      "optional": true
-    },
-    "@c9up/ream": {
-      "optional": true
-    }
-  },
-  "files": [
-    "src",
-    "dist",
-    "README.md",
-    "LICENSE",
-    "index.*.node",
-    "scripts"
-  ],
-  "publishConfig": {
-    "main": "./dist/index.js",
-    "types": "./dist/index.d.ts",
-    "exports": {
-      ".": {
-        "types": "./dist/index.d.ts",
-        "import": "./dist/index.js"
-      },
-      "./provider": {
-        "types": "./dist/RoverProvider.d.ts",
-        "import": "./dist/RoverProvider.js"
-      },
-      "./configure": {
-        "types": "./dist/configure.d.ts",
-        "import": "./dist/configure.js"
-      },
-      "./services/main": {
-        "types": "./dist/services/main.d.ts",
-        "import": "./dist/services/main.js"
-      },
-      "./transports/mailgun": {
-        "types": "./dist/transports/MailgunTransport.d.ts",
-        "import": "./dist/transports/MailgunTransport.js"
-      },
-      "./transports/sendgrid": {
-        "types": "./dist/transports/SendGridTransport.d.ts",
-        "import": "./dist/transports/SendGridTransport.js"
-      },
-      "./transports/ses": {
-        "types": "./dist/transports/SesTransport.d.ts",
-        "import": "./dist/transports/SesTransport.js"
-      },
-      "./transports/resend": {
-        "types": "./dist/transports/ResendTransport.d.ts",
-        "import": "./dist/transports/ResendTransport.js"
-      },
-      "./transports/brevo": {
-        "types": "./dist/transports/BrevoTransport.d.ts",
-        "import": "./dist/transports/BrevoTransport.js"
-      },
-      "./transports/sparkpost": {
-        "types": "./dist/transports/SparkPostTransport.d.ts",
-        "import": "./dist/transports/SparkPostTransport.js"
-      },
-      "./testing": {
-        "types": "./dist/testing/FakeMail.d.ts",
-        "import": "./dist/testing/FakeMail.js"
-      },
-      "./webhooks/mailgun": {
-        "types": "./dist/webhooks/mailgun.d.ts",
-        "import": "./dist/webhooks/mailgun.js"
-      },
-      "./webhooks/sendgrid": {
-        "types": "./dist/webhooks/sendgrid.d.ts",
-        "import": "./dist/webhooks/sendgrid.js"
-      },
-      "./webhooks/resend": {
-        "types": "./dist/webhooks/resend.d.ts",
-        "import": "./dist/webhooks/resend.js"
-      }
-    },
-    "access": "public"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/C9up/rover.git"
-  }
+	"name": "@c9up/rover",
+	"version": "0.1.17",
+	"description": "Mail transport for Ream \u2014 SMTP, log, and pluggable transports",
+	"type": "module",
+	"main": "./src/index.ts",
+	"types": "./src/index.ts",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"import": "./src/index.ts"
+		},
+		"./provider": {
+			"types": "./src/RoverProvider.ts",
+			"import": "./src/RoverProvider.ts"
+		},
+		"./configure": {
+			"types": "./src/configure.ts",
+			"import": "./src/configure.ts"
+		},
+		"./services/main": {
+			"types": "./src/services/main.ts",
+			"import": "./src/services/main.ts"
+		},
+		"./transports/mailgun": {
+			"types": "./src/transports/MailgunTransport.ts",
+			"import": "./src/transports/MailgunTransport.ts"
+		},
+		"./transports/sendgrid": {
+			"types": "./src/transports/SendGridTransport.ts",
+			"import": "./src/transports/SendGridTransport.ts"
+		},
+		"./transports/ses": {
+			"types": "./src/transports/SesTransport.ts",
+			"import": "./src/transports/SesTransport.ts"
+		},
+		"./transports/resend": {
+			"types": "./src/transports/ResendTransport.ts",
+			"import": "./src/transports/ResendTransport.ts"
+		},
+		"./transports/brevo": {
+			"types": "./src/transports/BrevoTransport.ts",
+			"import": "./src/transports/BrevoTransport.ts"
+		},
+		"./transports/sparkpost": {
+			"types": "./src/transports/SparkPostTransport.ts",
+			"import": "./src/transports/SparkPostTransport.ts"
+		},
+		"./testing": {
+			"types": "./src/testing/FakeMail.ts",
+			"import": "./src/testing/FakeMail.ts"
+		},
+		"./webhooks/mailgun": {
+			"types": "./src/webhooks/mailgun.ts",
+			"import": "./src/webhooks/mailgun.ts"
+		},
+		"./webhooks/sendgrid": {
+			"types": "./src/webhooks/sendgrid.ts",
+			"import": "./src/webhooks/sendgrid.ts"
+		},
+		"./webhooks/resend": {
+			"types": "./src/webhooks/resend.ts",
+			"import": "./src/webhooks/resend.ts"
+		}
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"build:napi": "cargo build --release -p rover-template-engine-napi && pnpm build:napi-types && node scripts/copy-napi.mjs",
+		"build:napi-types": "node scripts/build-napi-types.mjs",
+		"test": "vitest run",
+		"lint": "biome check src/",
+		"test:coverage": "vitest run --coverage",
+		"typecheck": "tsc --noEmit",
+		"typecheck:tests": "tsc --noEmit -p tsconfig.tests.json"
+	},
+	"dependencies": {
+		"nodemailer": "^9.0.1"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.10",
+		"@c9up/bay": "^0.1.13",
+		"@c9up/helix": "^0.2.0",
+		"@c9up/ream": "^0.2.0",
+		"@types/node": "*",
+		"@types/nodemailer": "^7.0.0",
+		"typescript": "^6.0.2",
+		"vitest": "^4.1.2"
+	},
+	"peerDependencies": {
+		"@c9up/helix": "^0.2.0",
+		"@c9up/ream": "^0.2.0"
+	},
+	"peerDependenciesMeta": {
+		"@c9up/helix": {
+			"optional": true
+		},
+		"@c9up/ream": {
+			"optional": true
+		}
+	},
+	"files": [
+		"src",
+		"dist",
+		"README.md",
+		"LICENSE",
+		"index.*.node",
+		"scripts"
+	],
+	"publishConfig": {
+		"main": "./dist/index.js",
+		"types": "./dist/index.d.ts",
+		"exports": {
+			".": {
+				"types": "./dist/index.d.ts",
+				"import": "./dist/index.js"
+			},
+			"./provider": {
+				"types": "./dist/RoverProvider.d.ts",
+				"import": "./dist/RoverProvider.js"
+			},
+			"./configure": {
+				"types": "./dist/configure.d.ts",
+				"import": "./dist/configure.js"
+			},
+			"./services/main": {
+				"types": "./dist/services/main.d.ts",
+				"import": "./dist/services/main.js"
+			},
+			"./transports/mailgun": {
+				"types": "./dist/transports/MailgunTransport.d.ts",
+				"import": "./dist/transports/MailgunTransport.js"
+			},
+			"./transports/sendgrid": {
+				"types": "./dist/transports/SendGridTransport.d.ts",
+				"import": "./dist/transports/SendGridTransport.js"
+			},
+			"./transports/ses": {
+				"types": "./dist/transports/SesTransport.d.ts",
+				"import": "./dist/transports/SesTransport.js"
+			},
+			"./transports/resend": {
+				"types": "./dist/transports/ResendTransport.d.ts",
+				"import": "./dist/transports/ResendTransport.js"
+			},
+			"./transports/brevo": {
+				"types": "./dist/transports/BrevoTransport.d.ts",
+				"import": "./dist/transports/BrevoTransport.js"
+			},
+			"./transports/sparkpost": {
+				"types": "./dist/transports/SparkPostTransport.d.ts",
+				"import": "./dist/transports/SparkPostTransport.js"
+			},
+			"./testing": {
+				"types": "./dist/testing/FakeMail.d.ts",
+				"import": "./dist/testing/FakeMail.js"
+			},
+			"./webhooks/mailgun": {
+				"types": "./dist/webhooks/mailgun.d.ts",
+				"import": "./dist/webhooks/mailgun.js"
+			},
+			"./webhooks/sendgrid": {
+				"types": "./dist/webhooks/sendgrid.d.ts",
+				"import": "./dist/webhooks/sendgrid.js"
+			},
+			"./webhooks/resend": {
+				"types": "./dist/webhooks/resend.d.ts",
+				"import": "./dist/webhooks/resend.js"
+			}
+		},
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/C9up/rover.git"
+	}
 }

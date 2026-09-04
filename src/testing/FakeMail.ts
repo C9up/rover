@@ -1,4 +1,4 @@
-import type { Plugin } from "@c9up/helix";
+import type { PluginApi } from "@c9up/helix";
 import { BaseMail } from "../BaseMail.js";
 import type { MailMessage, MailSendOutcome, MailTransport } from "../Mail.js";
 
@@ -340,8 +340,17 @@ export interface FakeableMailer {
  * frame) and torn down when that test ends — so capture never leaks between
  * tests. Uses the manager's own `fake()`/`restore()` (the Adonis pattern).
  */
-export function mailFake(mailer: FakeableMailer): Plugin {
-	return (api) => {
+/** The slice of helix's `PluginApi` this plugin uses. */
+export type MailPluginHost = Pick<PluginApi, "context">;
+
+export function mailFake(
+	mailer: FakeableMailer,
+): (api: MailPluginHost) => void {
+	// Typed by what it touches, not by the whole `PluginApi`: a test wiring the
+	// plugin had to build every field of it — `config`, `cliArgs`, `runner`,
+	// `emitter`, `cleanup` — to exercise a function that reads one. Same shape
+	// `@c9up/helix-plugin-ream` uses for its own host.
+	return (api: MailPluginHost) => {
 		api.context.getter("mail", (ctx) => {
 			const fake = mailer.fake();
 			ctx.cleanup(() => mailer.restore());

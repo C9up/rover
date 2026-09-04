@@ -3,15 +3,18 @@ import {
 	BaseMail,
 	Mail,
 	type MailMessage,
+	type MailSendOutcome,
 	type MailTransport,
 	registerTransport,
 } from "../../src/index.js";
 import { FakeMail } from "../../src/testing/FakeMail.js";
+import { defined } from "../__helpers__/defined.js";
 
 class TailTransport implements MailTransport {
 	sent: MailMessage[] = [];
-	async send(message: MailMessage): Promise<void> {
+	async send(message: MailMessage): Promise<MailSendOutcome> {
 		this.sent.push(message);
+		return undefined;
 	}
 }
 
@@ -36,7 +39,7 @@ describe("rover > FakeMail / Mail.fake()", () => {
 
 		expect(fake.getSent()).toHaveLength(1);
 		expect(tail.sent).toHaveLength(0);
-		expect(fake.getSent()[0].to).toEqual(["user@example.com"]);
+		expect(defined(fake.getSent()[0]).to).toEqual(["user@example.com"]);
 	});
 
 	it("assertSent({ to }) passes when address is a recipient", async () => {
@@ -142,13 +145,13 @@ describe("rover > FakeMail / Mail.fake()", () => {
 		mail.restore();
 		await mail.send((m) => m.to("real@x.com").subject("S"));
 		expect(tail.sent).toHaveLength(1);
-		expect(tail.sent[0].to).toEqual(["real@x.com"]);
+		expect(defined(tail.sent[0]).to).toEqual(["real@x.com"]);
 	});
 
 	it("captures BaseMail instance sends as built MailMessage", async () => {
 		class Welcome extends BaseMail {
-			from = "noreply@acme.com";
-			subject = "Welcome!";
+			override from = "noreply@acme.com";
+			override subject = "Welcome!";
 			constructor(private email: string) {
 				super();
 			}
@@ -162,9 +165,9 @@ describe("rover > FakeMail / Mail.fake()", () => {
 		await mail.send(new Welcome("user@acme.com"));
 
 		expect(fake.getSent()).toHaveLength(1);
-		expect(fake.getSent()[0].to).toEqual(["user@acme.com"]);
-		expect(fake.getSent()[0].subject).toBe("Welcome!");
-		expect(fake.getSent()[0].from).toBe("noreply@acme.com");
+		expect(defined(fake.getSent()[0]).to).toEqual(["user@acme.com"]);
+		expect(defined(fake.getSent()[0]).subject).toBe("Welcome!");
+		expect(defined(fake.getSent()[0]).from).toBe("noreply@acme.com");
 	});
 
 	it("rejects empty `containing` needle (would match everything)", async () => {
@@ -183,12 +186,12 @@ describe("rover > FakeMail / Mail.fake()", () => {
 		await mail.send((m) => m.to("u@x.com").subject("S").html("<p>Hi</p>"));
 
 		const snapshot = fake.getSent();
-		snapshot[0].to.push("injected@evil.com");
-		snapshot[0].subject = "mutated";
+		defined(snapshot[0]).to.push("injected@evil.com");
+		defined(snapshot[0]).subject = "mutated";
 
 		const fresh = fake.getSent();
-		expect(fresh[0].to).toEqual(["u@x.com"]);
-		expect(fresh[0].subject).toBe("S");
+		expect(defined(fresh[0]).to).toEqual(["u@x.com"]);
+		expect(defined(fresh[0]).subject).toBe("S");
 	});
 
 	it("re-fake cycle (fake → restore → fake) works", async () => {
@@ -204,7 +207,7 @@ describe("rover > FakeMail / Mail.fake()", () => {
 
 		expect(fake1.getSent()).toHaveLength(1);
 		expect(fake2.getSent()).toHaveLength(1);
-		expect(fake2.getSent()[0].to).toEqual(["b@x.com"]);
+		expect(defined(fake2.getSent()[0]).to).toEqual(["b@x.com"]);
 		expect(tail.sent).toHaveLength(0);
 	});
 

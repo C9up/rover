@@ -6,15 +6,19 @@ import {
 	type EmitterLike,
 	Mail,
 	type MailMessage,
+	type MailSendOutcome,
 	type MailSendResult,
 	type MailTransport,
 	MessageBuilder,
 	registerTransport,
 } from "../../src/index.js";
 import { RoverError } from "../../src/RoverError.js";
+import { defined } from "../__helpers__/defined.js";
 
 class PassTransport implements MailTransport {
-	async send(_m: MailMessage): Promise<void> {}
+	async send(_m: MailMessage): Promise<MailSendOutcome> {
+		return undefined;
+	}
 }
 
 class ProviderIdTransport implements MailTransport {
@@ -27,7 +31,7 @@ class ProviderIdTransport implements MailTransport {
 class ScriptedTransport implements MailTransport {
 	calls = 0;
 	constructor(private behaviour: Array<"ok" | Error>) {}
-	async send(_m: MailMessage): Promise<void> {
+	async send(_m: MailMessage): Promise<MailSendOutcome> {
 		const step =
 			this.behaviour[this.calls] ?? this.behaviour[this.behaviour.length - 1];
 		this.calls += 1;
@@ -100,10 +104,10 @@ describe("rover > delivery events", () => {
 		await mail.send((m) => m.to("u@x.com").subject("Hi"));
 
 		// mail:sending fires before mail:sent (AdonisJS event contract).
-		expect(emitter.events[0].name).toBe("mail:sending");
+		expect(defined(emitter.events[0]).name).toBe("mail:sending");
 		const sent = emitter.events.filter((e) => e.name === "mail:sent");
 		expect(sent).toHaveLength(1);
-		const data = sent[0].data as {
+		const data = defined(sent[0]).data as {
 			messageId: string;
 			to: string[];
 			transportName: string;

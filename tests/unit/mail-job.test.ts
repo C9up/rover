@@ -14,6 +14,7 @@ import {
 	type MailDispatcher,
 	MailJobHandler,
 } from "../../src/queue/MailJob.js";
+import { defined } from "../__helpers__/defined.js";
 
 class RecordingDispatcher implements MailDispatcher {
 	calls: Array<{
@@ -34,7 +35,19 @@ class RecordingDispatcher implements MailDispatcher {
 	}
 }
 
-const payload = (over: Partial<MailMessage> = {}) => ({
+/**
+ * What a job payload actually carries.
+ *
+ * Not `Partial<MailMessage>`: the payload has been through JSON, which is the
+ * whole reason `MailJobHandler` exists — a `Buffer` arrives as
+ * `{ type: "Buffer", data: [...] }`, and typing the override as a live
+ * `MailMessage` made the very fixture that proves the revival a type error.
+ */
+type WireMessage = Omit<Partial<MailMessage>, "attachments"> & {
+	attachments?: Array<{ filename: string; content: unknown }>;
+};
+
+const payload = (over: WireMessage = {}) => ({
 	message: {
 		from: "a@acme.test",
 		to: ["b@acme.test"],
@@ -57,8 +70,8 @@ describe("rover > MailJobHandler", () => {
 		});
 
 		expect(dispatcher.calls).toHaveLength(1);
-		expect(dispatcher.calls[0].message.subject).toBe("S");
-		expect(dispatcher.calls[0].transport).toBe("ses");
+		expect(defined(dispatcher.calls[0]).message.subject).toBe("S");
+		expect(defined(dispatcher.calls[0]).transport).toBe("ses");
 	});
 
 	it("runs the in-process retry loop exactly once", async () => {
@@ -68,7 +81,7 @@ describe("rover > MailJobHandler", () => {
 
 		// Bay re-dispatches on throw. If the handler also retried, one queue
 		// job would become maxAttempts × maxAttempts sends.
-		expect(dispatcher.calls[0].retry?.maxAttempts).toBe(1);
+		expect(defined(dispatcher.calls[0]).retry?.maxAttempts).toBe(1);
 	});
 
 	it("leaves the transport unset when the payload named none", async () => {
@@ -81,7 +94,7 @@ describe("rover > MailJobHandler", () => {
 
 		// A non-string transport is not a transport name — falling back to the
 		// default beats sending through `"42"`.
-		expect(dispatcher.calls[0].transport).toBeUndefined();
+		expect(defined(dispatcher.calls[0]).transport).toBeUndefined();
 	});
 
 	it("rebuilds a Buffer attachment that JSON flattened into an object", async () => {
@@ -96,7 +109,9 @@ describe("rover > MailJobHandler", () => {
 			}),
 		);
 
-		const content = dispatcher.calls[0].message.attachments[0].content;
+		const content = defined(
+			defined(dispatcher.calls[0]).message.attachments[0],
+		).content;
 		expect(Buffer.isBuffer(content)).toBe(true);
 		expect((content as Buffer).toString()).toBe("%PDF-1.4");
 	});
@@ -114,7 +129,10 @@ describe("rover > MailJobHandler", () => {
 			}),
 		);
 
-		const [a, b, c] = dispatcher.calls[0].message.attachments;
+		const attachments = defined(dispatcher.calls[0]).message.attachments;
+		const a = defined(attachments[0], "first attachment");
+		const b = defined(attachments[1], "second attachment");
+		const c = defined(attachments[2], "third attachment");
 		expect(a.content).toBe("plain");
 		expect(Buffer.isBuffer(b.content)).toBe(true);
 		expect(c.content).toEqual({ type: "NotABuffer" });
@@ -125,7 +143,7 @@ describe("rover > MailJobHandler", () => {
 
 		await new MailJobHandler(dispatcher).handle(payload());
 
-		expect(dispatcher.calls[0].message.attachments).toEqual([]);
+		expect(defined(dispatcher.calls[0]).message.attachments).toEqual([]);
 	});
 
 	it("refuses a payload that is not an object", async () => {

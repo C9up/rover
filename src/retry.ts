@@ -83,9 +83,18 @@ export function computeBackoffMs(
 	return Math.min(config.maxDelayMs, Math.max(50, raw));
 }
 
+/**
+ * Global and per-transport overrides, merged over the defaults.
+ *
+ * `Partial`, because that is what the function does: it spreads whatever it is
+ * given over {@link DEFAULT_RETRY_CONFIG}, so `{ maxAttempts: 1 }` is a
+ * complete answer. Declared as the full `RetryConfig`, a config file writing
+ * exactly that was a type error for doing the supported thing — and every
+ * caller had to spell `baseDelayMs` and `factor` it did not want to change.
+ */
 export function resolveRetryConfig(
-	globalConfig: RetryConfig | undefined,
-	transportConfig: RetryConfig | undefined,
+	globalConfig: Partial<RetryConfig> | undefined,
+	transportConfig: Partial<RetryConfig> | undefined,
 ): Required<RetryConfig> {
 	// Skip entries whose value is `undefined` so a partial override doesn't
 	// clobber a default or global value. Pre-spread filter is required because

@@ -26,7 +26,7 @@ const parseForm = (body: string): Record<string, string[]> => {
 	const out: Record<string, string[]> = {};
 	for (const pair of body.split("&")) {
 		const [k, v] = pair.split("=");
-		const key = decodeURIComponent(k);
+		const key = decodeURIComponent(k ?? "");
 		const value = decodeURIComponent(v ?? "");
 		if (!out[key]) out[key] = [];
 		out[key].push(value);

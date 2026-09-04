@@ -151,7 +151,7 @@ export interface MailConfig {
 	 */
 	mailers?: Record<
 		string,
-		{ transport: string; retry?: RetryConfig; [key: string]: unknown }
+		{ transport: string; retry?: Partial<RetryConfig>; [key: string]: unknown }
 	>;
 	/**
 	 * Rover's older spelling of `mailers`. Still accepted and identical in
@@ -159,14 +159,14 @@ export interface MailConfig {
 	 */
 	transports?: Record<
 		string,
-		{ transport: string; retry?: RetryConfig; [key: string]: unknown }
+		{ transport: string; retry?: Partial<RetryConfig>; [key: string]: unknown }
 	>;
 	/** Root directory for `htmlView(path, data)` template lookups. Default: `"resources/views/emails"`. */
 	viewsRoot?: string;
 	/** Optional Bay queue tuning for `sendLater()`. */
 	queue?: { name?: string; maxAttempts?: number };
 	/** Process-wide retry defaults. Overridden per-mailer via `mailers[name].retry`. */
-	retry?: RetryConfig;
+	retry?: Partial<RetryConfig>;
 }
 
 /**
@@ -397,8 +397,8 @@ export class Mail {
 	#memoryMessenger: MemoryMailMessenger;
 	#queueName: string;
 	#queueMaxAttempts: number;
-	#globalRetry: RetryConfig | undefined;
-	#transportRetry: Map<string, RetryConfig> = new Map();
+	#globalRetry: Partial<RetryConfig> | undefined;
+	#transportRetry: Map<string, Partial<RetryConfig>> = new Map();
 	#hooks: MailHooks;
 	#emitter: EmitterLike | null;
 	/** Per-instance template root, threaded into each render so concurrent Mails with different roots don't clobber the shared global. */

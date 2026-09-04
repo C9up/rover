@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
 import type { RoverError } from "../../src/RoverError.js";
 import { SendGridTransport } from "../../src/transports/SendGridTransport.js";
+import { defined } from "../__helpers__/defined.js";
 
 const baseMessage = (): MailMessage => ({
 	from: "sender@example.com",
@@ -78,7 +79,7 @@ describe("rover > SendGridTransport", () => {
 		expect(url()).toBe("https://api.sendgrid.com/v3/mail/send");
 		expect(headers().Authorization).toBe("Bearer SG.k");
 		expect(body().from.email).toBe("sender@example.com");
-		expect(body().personalizations[0].to).toEqual([
+		expect(defined(body().personalizations[0]).to).toEqual([
 			{ email: "user@example.com" },
 		]);
 		expect(body().subject).toBe("Hello");
@@ -101,7 +102,7 @@ describe("rover > SendGridTransport", () => {
 			],
 		});
 
-		const [personalization] = body().personalizations;
+		const personalization = defined(body().personalizations[0]);
 		expect(personalization.cc).toEqual([{ email: "cc@example.com" }]);
 		expect(personalization.bcc).toEqual([{ email: "bcc@example.com" }]);
 		expect(body().reply_to).toEqual({ email: "reply@example.com" });

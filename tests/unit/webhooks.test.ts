@@ -14,6 +14,7 @@ import type {
 import { createMailgunWebhookHandler } from "../../src/webhooks/mailgun.js";
 import { createResendWebhookHandler } from "../../src/webhooks/resend.js";
 import { createSendGridWebhookHandler } from "../../src/webhooks/sendgrid.js";
+import { defined } from "../__helpers__/defined.js";
 
 const freshTimestamp = (): string => Math.floor(Date.now() / 1000).toString();
 
@@ -96,8 +97,11 @@ describe("rover > webhooks > Mailgun", () => {
 
 		expect(res._status).toBe(200);
 		expect(emitter.events).toHaveLength(1);
-		expect(emitter.events[0].name).toBe("mail.delivered");
-		const ev = emitter.events[0].data as { messageId: string; to: string };
+		expect(defined(emitter.events[0]).name).toBe("mail.delivered");
+		const ev = defined(emitter.events[0]).data as {
+			messageId: string;
+			to: string;
+		};
 		expect(ev.messageId).toBe("mg-msg-1");
 		expect(ev.to).toBe("user@example.com");
 	});
@@ -127,7 +131,7 @@ describe("rover > webhooks > Mailgun", () => {
 		await handler(ctx, async () => {});
 
 		expect(res._status).toBe(200);
-		const ev = emitter.events[0].data as { timestamp: number };
+		const ev = defined(emitter.events[0]).data as { timestamp: number };
 		expect(Number.isNaN(ev.timestamp)).toBe(false);
 		expect(Number.isFinite(ev.timestamp)).toBe(true);
 		expect(ev.timestamp).toBeGreaterThan(0);
@@ -156,7 +160,7 @@ describe("rover > webhooks > Mailgun", () => {
 		await handler(ctx, async () => {});
 
 		expect(res._status).toBe(200);
-		expect(emitter.events[0].name).toBe("mail.bounced");
+		expect(defined(emitter.events[0]).name).toBe("mail.bounced");
 	});
 
 	it("rejects tampered signature with 401", async () => {
@@ -317,7 +321,7 @@ describe("rover > webhooks > SendGrid", () => {
 		await handler(ctx, async () => {});
 
 		expect(res._status).toBe(200);
-		const ev = emitter.events[0].data as { timestamp: number };
+		const ev = defined(emitter.events[0]).data as { timestamp: number };
 		expect(Number.isNaN(ev.timestamp)).toBe(false);
 		expect(Number.isFinite(ev.timestamp)).toBe(true);
 		expect(ev.timestamp).toBeGreaterThan(0);
@@ -393,8 +397,11 @@ describe("rover > webhooks > Resend", () => {
 
 		expect(res._status).toBe(200);
 		expect(emitter.events).toHaveLength(1);
-		expect(emitter.events[0].name).toBe("mail.delivered");
-		const ev = emitter.events[0].data as { messageId: string; to: string };
+		expect(defined(emitter.events[0]).name).toBe("mail.delivered");
+		const ev = defined(emitter.events[0]).data as {
+			messageId: string;
+			to: string;
+		};
 		expect(ev.messageId).toBe("res-abc");
 		expect(ev.to).toBe("user@example.com");
 	});
@@ -431,7 +438,7 @@ describe("rover > webhooks > Resend", () => {
 
 		expect(res._status).toBe(200);
 		expect(emitter.events).toHaveLength(1);
-		const ev = emitter.events[0].data as { timestamp: number };
+		const ev = defined(emitter.events[0]).data as { timestamp: number };
 		// The bug: `new Date("not-a-date").getTime()` is NaN. The guard
 		// must fall back to a real epoch-ms value instead of leaking NaN.
 		expect(Number.isNaN(ev.timestamp)).toBe(false);
@@ -470,7 +477,7 @@ describe("rover > webhooks > Resend", () => {
 		await handler(ctx, async () => {});
 
 		expect(res._status).toBe(200);
-		const ev = emitter.events[0].data as { timestamp: number };
+		const ev = defined(emitter.events[0]).data as { timestamp: number };
 		expect(ev.timestamp).toBe(Date.parse("2024-01-01T00:00:00.000Z"));
 	});
 
@@ -521,7 +528,7 @@ describe("rover > webhooks > Resend", () => {
 		await handler(ctx, async () => {});
 
 		expect(res._status).toBe(200);
-		expect(emitter.events[0].name).toBe("mail.bounced");
+		expect(defined(emitter.events[0]).name).toBe("mail.bounced");
 	});
 });
 
@@ -531,11 +538,21 @@ void createSign;
 describe("rover > the Resend signing secret is validated at config time", () => {
 	const valid = Buffer.from("k".repeat(24)).toString("base64");
 
+	// The secret is validated before the emitter is ever reached, but the
+	// options type asks for one — so give it the one that does nothing rather
+	// than leave the argument short.
+	const silentEmitter: WebhookEmitter = { emit: () => undefined };
+
 	it("takes the secret with or without its whsec_ prefix", () => {
 		expect(() =>
-			createResendWebhookHandler({ secret: `whsec_${valid}` }),
+			createResendWebhookHandler({
+				secret: `whsec_${valid}`,
+				emitter: silentEmitter,
+			}),
 		).not.toThrow();
-		expect(() => createResendWebhookHandler({ secret: valid })).not.toThrow();
+		expect(() =>
+			createResendWebhookHandler({ secret: valid, emitter: silentEmitter }),
+		).not.toThrow();
 	});
 
 	it("refuses a secret that is not base64", () => {
@@ -543,7 +560,10 @@ describe("rover > the Resend signing secret is validated at config time", () => 
 		// So a mistyped secret becomes a short deterministic key, and every
 		// delivery then fails verification and looks like an attack.
 		expect(() =>
-			createResendWebhookHandler({ secret: "whsec_not base64 at all!!" }),
+			createResendWebhookHandler({
+				secret: "whsec_not base64 at all!!",
+				emitter: silentEmitter,
+			}),
 		).toThrow(/not valid base64/);
 	});
 
@@ -551,13 +571,14 @@ describe("rover > the Resend signing secret is validated at config time", () => 
 		expect(() =>
 			createResendWebhookHandler({
 				secret: Buffer.from("short").toString("base64"),
+				emitter: silentEmitter,
 			}),
 		).toThrow(/too short to sign with/);
 	});
 
 	it("still refuses an absent secret", () => {
-		expect(() => createResendWebhookHandler({ secret: "" })).toThrow(
-			/secret is required/,
-		);
+		expect(() =>
+			createResendWebhookHandler({ secret: "", emitter: silentEmitter }),
+		).toThrow(/secret is required/);
 	});
 });

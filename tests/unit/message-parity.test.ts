@@ -22,6 +22,7 @@ import {
 	headerValue,
 	MessageBuilder,
 } from "../../src/index.js";
+import { defined } from "../__helpers__/defined.js";
 
 const dir = mkdtempSync(join(tmpdir(), "rover-msg-"));
 const invoice = join(dir, "invoice.pdf");
@@ -40,14 +41,16 @@ describe("rover > attachments by path", () => {
 		const built = await message().attach(invoice).build();
 
 		expect(built.attachments).toHaveLength(1);
-		expect(built.attachments[0].filename).toBe("invoice.pdf");
-		expect(built.attachments[0].content.toString()).toBe("%PDF-1.4 fake");
+		expect(defined(built.attachments[0]).filename).toBe("invoice.pdf");
+		expect(defined(built.attachments[0]).content.toString()).toBe(
+			"%PDF-1.4 fake",
+		);
 	});
 
 	it("accepts a file:// URL", async () => {
 		const built = await message().attach(pathToFileURL(invoice)).build();
 
-		expect(built.attachments[0].filename).toBe("invoice.pdf");
+		expect(defined(built.attachments[0]).filename).toBe("invoice.pdf");
 	});
 
 	it("honours an explicit filename and content type", async () => {
@@ -58,8 +61,8 @@ describe("rover > attachments by path", () => {
 			})
 			.build();
 
-		expect(built.attachments[0].filename).toBe("facture.pdf");
-		expect(built.attachments[0].contentType).toBe("application/pdf");
+		expect(defined(built.attachments[0]).filename).toBe("facture.pdf");
+		expect(defined(built.attachments[0]).contentType).toBe("application/pdf");
 	});
 
 	it("raises rather than ship an empty part when the file cannot be read", async () => {
@@ -74,15 +77,17 @@ describe("rover > attachments by path", () => {
 			.attachData("hello", { filename: "note.txt", contentType: "text/plain" })
 			.build();
 
-		expect(built.attachments[0].content).toBe("hello");
+		expect(defined(built.attachments[0]).content).toBe("hello");
 	});
 
 	it("embeds a file inline under a cid", async () => {
 		const built = await message().embed(invoice, "logo").build();
 
-		expect(built.attachments[0].cid).toBe("logo");
-		expect(built.attachments[0].contentDisposition).toBe("inline");
-		expect(built.attachments[0].content.toString()).toBe("%PDF-1.4 fake");
+		expect(defined(built.attachments[0]).cid).toBe("logo");
+		expect(defined(built.attachments[0]).contentDisposition).toBe("inline");
+		expect(defined(built.attachments[0]).content.toString()).toBe(
+			"%PDF-1.4 fake",
+		);
 	});
 
 	it("finds an attachment by filename, by path, or by predicate", () => {
@@ -177,8 +182,8 @@ describe("rover > calendar invitations", () => {
 		const parts = attachmentsFor(built);
 
 		expect(parts).toHaveLength(1);
-		expect(parts[0].filename).toBe("invite.ics");
-		expect(parts[0].contentType).toBe(
+		expect(defined(parts[0]).filename).toBe("invite.ics");
+		expect(defined(parts[0]).contentType).toBe(
 			"text/calendar; charset=utf-8; method=REQUEST",
 		);
 	});

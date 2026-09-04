@@ -11,14 +11,17 @@ import {
 	BaseMail,
 	Mail,
 	type MailMessage,
+	type MailSendOutcome,
 	type MailTransport,
 	registerTransport,
 } from "../../src/index.js";
+import { defined } from "../__helpers__/defined.js";
 
 class TailTransport implements MailTransport {
 	sent: MailMessage[] = [];
-	async send(message: MailMessage): Promise<void> {
+	async send(message: MailMessage): Promise<MailSendOutcome> {
 		this.sent.push(message);
+		return undefined;
 	}
 }
 
@@ -34,8 +37,8 @@ const makeMail = (): Mail => {
 };
 
 class WelcomeMail extends BaseMail {
-	from = "noreply@acme.test";
-	subject = "Welcome!";
+	override from = "noreply@acme.test";
+	override subject = "Welcome!";
 	constructor(readonly email: string) {
 		super();
 	}
@@ -45,8 +48,8 @@ class WelcomeMail extends BaseMail {
 }
 
 class ReceiptMail extends BaseMail {
-	from = "billing@acme.test";
-	subject = "Your receipt";
+	override from = "billing@acme.test";
+	override subject = "Your receipt";
 	override prepare(): void {
 		this.message.to("customer@acme.test").text("thanks");
 	}
@@ -65,7 +68,7 @@ describe("rover > the queued bucket", () => {
 		expect(fake.getQueued()).toHaveLength(1);
 		// The two buckets are separate: a queued message was never sent.
 		expect(fake.getSent()).toHaveLength(0);
-		expect(fake.getQueued()[0].subject).toBe("Later");
+		expect(defined(fake.getQueued()[0]).subject).toBe("Later");
 	});
 
 	it("hands back a snapshot, so a caller cannot edit the capture", async () => {
@@ -73,9 +76,9 @@ describe("rover > the queued bucket", () => {
 		const fake = mail.fake();
 		await mail.sendLater((m) => m.to("user@acme.test").subject("Later"));
 
-		fake.getQueued()[0].to.push("injected@evil.test");
+		defined(fake.getQueued()[0]).to.push("injected@evil.test");
 
-		expect(fake.getQueued()[0].to).toEqual(["user@acme.test"]);
+		expect(defined(fake.getQueued()[0]).to).toEqual(["user@acme.test"]);
 	});
 
 	it("answers assertQueued on a predicate, and assertNotQueued on its opposite", async () => {

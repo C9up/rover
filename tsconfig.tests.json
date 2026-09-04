@@ -1,0 +1,16 @@
+{
+  // The tests, typechecked in their own program.
+  //
+  // `tsconfig.json` compiles `src` alone, so no test file was ever read by
+  // `tsc` — the same gap helix and ream had, and the same fix.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "vitest/globals"],
+    // `rootDir` is `src` for the build; the tests sit beside it, and nothing is
+    // emitted here anyway.
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src", "tests"],
+  "exclude": ["node_modules"]
+}

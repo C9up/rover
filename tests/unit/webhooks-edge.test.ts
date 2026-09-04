@@ -9,6 +9,7 @@ import type {
 import { createMailgunWebhookHandler } from "../../src/webhooks/mailgun.js";
 import { createResendWebhookHandler } from "../../src/webhooks/resend.js";
 import { createSendGridWebhookHandler } from "../../src/webhooks/sendgrid.js";
+import { defined } from "../__helpers__/defined.js";
 
 class Emitter implements WebhookEmitter {
 	events: Array<{ name: string; data: unknown }> = [];
@@ -208,7 +209,7 @@ describe("rover > webhooks > SendGrid edge cases", () => {
 			"x-twilio-email-event-webhook-timestamp": timestamp,
 		});
 		await handler(ctx, async () => {});
-		const ev = emitter.events[0].data as { timestamp: number };
+		const ev = defined(emitter.events[0]).data as { timestamp: number };
 		expect(ev.timestamp).toBe(msTimestamp);
 	});
 

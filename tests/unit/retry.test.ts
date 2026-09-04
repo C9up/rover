@@ -2,17 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	Mail,
 	type MailMessage,
+	type MailSendOutcome,
 	type MailTransport,
 	registerTransport,
 } from "../../src/index.js";
 import { RoverError } from "../../src/RoverError.js";
+import { defined } from "../__helpers__/defined.js";
 
 type Step = "ok" | Error;
 
 class ScriptedTransport implements MailTransport {
 	calls = 0;
 	constructor(private behaviour: Step[]) {}
-	async send(_message: MailMessage): Promise<void> {
+	async send(_message: MailMessage): Promise<MailSendOutcome> {
 		const idx = this.calls;
 		this.calls += 1;
 		const step =
@@ -205,7 +207,7 @@ describe("rover > retry", () => {
 		).rejects.toBeInstanceOf(RoverError);
 
 		expect(onFailed).toHaveBeenCalledOnce();
-		const [event] = onFailed.mock.calls[0];
+		const [event] = defined(onFailed.mock.calls[0]);
 		const failure = event as {
 			to: string[];
 			transportName: string;
@@ -280,7 +282,7 @@ describe("rover > retry", () => {
 		});
 
 		await mail.send((m) => m.to("u@x.com").subject("S"));
-		const [event] = onSent.mock.calls[0];
+		const [event] = defined(onSent.mock.calls[0]);
 		const sent = event as { messageId: string };
 		expect(sent.messageId).toMatch(/^[0-9a-f]{32}$/);
 	});
@@ -390,7 +392,7 @@ describe("rover > retry", () => {
 			m.to("a@x.com").cc("b@x.com").bcc("c@x.com").subject("S").text("x"),
 		);
 
-		const sent = onSent.mock.calls[0][0] as {
+		const sent = defined(onSent.mock.calls[0])[0] as {
 			to: string[];
 			cc: string[];
 			bcc: string[];

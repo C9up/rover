@@ -5,25 +5,29 @@ import {
 	BaseMail,
 	Mail,
 	type MailMessage,
+	type MailSendOutcome,
 	type MailTransport,
 	registerTransport,
 } from "../../src/index.js";
+import { defined } from "../__helpers__/defined.js";
 
 class SpyTransport implements MailTransport {
 	sent: MailMessage[] = [];
-	async send(message: MailMessage): Promise<void> {
+	async send(message: MailMessage): Promise<MailSendOutcome> {
 		this.sent.push(message);
+		return undefined;
 	}
 }
 
 class FlakyTransport implements MailTransport {
 	calls = 0;
 	constructor(private failUntilAttempt: number) {}
-	async send(_message: MailMessage): Promise<void> {
+	async send(_message: MailMessage): Promise<MailSendOutcome> {
 		this.calls += 1;
 		if (this.calls < this.failUntilAttempt) {
 			throw new Error(`transient failure (attempt ${this.calls})`);
 		}
+		return undefined;
 	}
 }
 
@@ -74,16 +78,16 @@ describe("rover > Mail.sendLater", () => {
 		await queue.processOne();
 
 		expect(spy.sent).toHaveLength(1);
-		expect(spy.sent[0].to).toEqual(["u@x.com"]);
-		expect(spy.sent[0].subject).toBe("Processed");
-		expect(spy.sent[0].html).toBe("<p>hi</p>");
-		expect(spy.sent[0].from).toBe("default@example.com");
+		expect(defined(spy.sent[0]).to).toEqual(["u@x.com"]);
+		expect(defined(spy.sent[0]).subject).toBe("Processed");
+		expect(defined(spy.sent[0]).html).toBe("<p>hi</p>");
+		expect(defined(spy.sent[0]).from).toBe("default@example.com");
 	});
 
 	it("sendLater(BaseMail instance) works like the callback form", async () => {
 		class Welcome extends BaseMail {
-			from = "noreply@acme.com";
-			subject = "Welcome!";
+			override from = "noreply@acme.com";
+			override subject = "Welcome!";
 			constructor(private email: string) {
 				super();
 			}
@@ -101,8 +105,8 @@ describe("rover > Mail.sendLater", () => {
 
 		await queue.processOne();
 		expect(spy.sent).toHaveLength(1);
-		expect(spy.sent[0].to).toEqual(["user@acme.com"]);
-		expect(spy.sent[0].from).toBe("noreply@acme.com");
+		expect(defined(spy.sent[0]).to).toEqual(["user@acme.com"]);
+		expect(defined(spy.sent[0]).from).toBe("noreply@acme.com");
 	});
 
 	it("falls back to the in-memory messenger when no queue is wired (no throw)", async () => {
@@ -125,12 +129,12 @@ describe("rover > Mail.sendLater", () => {
 				.to("u@x.com")
 				.subject("Attach")
 				.text("see file")
-				.attach("logo.png", bytes, "image/png"),
+				.attachData(bytes, { filename: "logo.png", contentType: "image/png" }),
 		);
 		await queue.processOne();
 
 		expect(spy.sent).toHaveLength(1);
-		const att = spy.sent[0].attachments[0];
+		const att = defined(defined(spy.sent[0]).attachments[0]);
 		expect(Buffer.isBuffer(att.content)).toBe(true);
 		expect((att.content as Buffer).equals(bytes)).toBe(true);
 		expect(att.filename).toBe("logo.png");
@@ -187,7 +191,7 @@ describe("rover > Mail.sendLater", () => {
 				.to("u@x.com")
 				.subject("Redis-like")
 				.text("x")
-				.attach("logo.png", bytes, "image/png"),
+				.attachData(bytes, { filename: "logo.png", contentType: "image/png" }),
 		);
 
 		// Simulate a Redis driver's JSON round-trip by pulling the raw payload
@@ -197,7 +201,7 @@ describe("rover > Mail.sendLater", () => {
 		await queue.processOne();
 
 		expect(spy.sent).toHaveLength(1);
-		const att = spy.sent[0].attachments[0];
+		const att = defined(defined(spy.sent[0]).attachments[0]);
 		expect(Buffer.isBuffer(att.content)).toBe(true);
 		expect((att.content as Buffer).equals(bytes)).toBe(true);
 	});

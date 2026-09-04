@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	Mail,
 	type MailMessage,
+	type MailSendOutcome,
 	type MailTransport,
 	MessageBuilder,
 	registerTransport,
@@ -13,11 +14,13 @@ import {
 	resetCache,
 	setViewsRoot,
 } from "../../src/templating/SimpleTemplate.js";
+import { defined } from "../__helpers__/defined.js";
 
 class SpyTransport implements MailTransport {
 	sent: MailMessage[] = [];
-	async send(message: MailMessage): Promise<void> {
+	async send(message: MailMessage): Promise<MailSendOutcome> {
 		this.sent.push(message);
+		return undefined;
 	}
 }
 
@@ -64,7 +67,7 @@ describe("rover > MessageBuilder.htmlView", () => {
 		);
 
 		expect(spy.sent).toHaveLength(1);
-		expect(spy.sent[0].html).toBe("<p>Hi Lin</p>");
+		expect(defined(spy.sent[0]).html).toBe("<p>Hi Lin</p>");
 	});
 
 	it("Mail constructor propagates config.viewsRoot to the template engine", async () => {

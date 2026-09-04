@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
 	Mail,
 	type MailMessage,
+	type MailSendOutcome,
 	type MailTransport,
 	type RoverError,
 	registerTransport,
@@ -14,8 +15,9 @@ import {
 
 class SpyTransport implements MailTransport {
 	sent: MailMessage[] = [];
-	async send(message: MailMessage): Promise<void> {
+	async send(message: MailMessage): Promise<MailSendOutcome> {
 		this.sent.push(message);
+		return undefined;
 	}
 }
 

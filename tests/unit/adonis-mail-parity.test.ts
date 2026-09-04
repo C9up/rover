@@ -8,12 +8,16 @@ import { BaseMail } from "../../src/BaseMail.js";
 // From the package ENTRY, as a consumer does — that is what loads each
 // transport module and lets it register itself.
 import { transports } from "../../src/index.js";
-import { Mail, registerTransport } from "../../src/Mail.js";
+import {
+	Mail,
+	type MailSendOutcome,
+	registerTransport,
+} from "../../src/Mail.js";
 import { MessageBuilder } from "../../src/MessageBuilder.js";
 
 class WelcomeMail extends BaseMail {
-	from = "noreply@acme.test";
-	subject = "Welcome!";
+	override from = "noreply@acme.test";
+	override subject = "Welcome!";
 	constructor(readonly email: string) {
 		super();
 	}
@@ -111,7 +115,9 @@ describe("rover > close", () => {
 	it("closes a transport that holds connections open", async () => {
 		const close = vi.fn(async () => {});
 		registerTransport("closable", () => ({
-			send: async () => ({ messageId: "1", accepted: [], rejected: [] }),
+			// `MailSendResult` is `{ providerId? }` — `messageId`, `accepted` and
+			// `rejected` are nodemailer's shape, which a transport does not return.
+			send: async (): Promise<MailSendOutcome> => ({ providerId: "1" }),
 			close,
 		}));
 		const mail = new Mail({

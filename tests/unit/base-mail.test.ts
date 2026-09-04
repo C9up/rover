@@ -3,15 +3,18 @@ import {
 	BaseMail,
 	Mail,
 	type MailMessage,
+	type MailSendOutcome,
 	type MailTransport,
 	registerTransport,
 } from "../../src/index.js";
 import { bypassTypeCheck } from "../__helpers__/bypass-type-check.js";
+import { defined } from "../__helpers__/defined.js";
 
 class SpyTransport implements MailTransport {
 	sent: MailMessage[] = [];
-	async send(message: MailMessage): Promise<void> {
+	async send(message: MailMessage): Promise<MailSendOutcome> {
 		this.sent.push(message);
+		return undefined;
 	}
 }
 
@@ -31,22 +34,22 @@ class WelcomeMail extends BaseMail {
 }
 
 class BrandedMail extends BaseMail {
-	from = "orders@acme.com";
-	subject = "Order shipped";
+	override from = "orders@acme.com";
+	override subject = "Order shipped";
 	override prepare(): void {
 		this.message.to("user@example.com").text("on its way");
 	}
 }
 
 class NamedSenderMail extends BaseMail {
-	from = { address: "orders@acme.com", name: "Acme Orders" };
+	override from = { address: "orders@acme.com", name: "Acme Orders" };
 	override prepare(): void {
 		this.message.to("user@example.com").subject("Order").text("body");
 	}
 }
 
 class ExplicitFromInsidePrepareMail extends BaseMail {
-	from = "instance@acme.com";
+	override from = "instance@acme.com";
 	override prepare(): void {
 		this.message
 			.from("custom@acme.com")
@@ -57,7 +60,7 @@ class ExplicitFromInsidePrepareMail extends BaseMail {
 }
 
 class SubjectOverrideInsidePrepareMail extends BaseMail {
-	subject = "Default subject";
+	override subject = "Default subject";
 	override prepare(): void {
 		this.message.to("user@example.com").subject("Prepare wins").text("body");
 	}
@@ -104,9 +107,9 @@ describe("rover > BaseMail", () => {
 
 		expect(prepareSpy).toHaveBeenCalledOnce();
 		expect(spy.sent).toHaveLength(1);
-		expect(spy.sent[0].to).toEqual(["user@example.com"]);
-		expect(spy.sent[0].subject).toBe("Welcome Lin");
-		expect(spy.sent[0].from).toBe("default@example.com");
+		expect(defined(spy.sent[0]).to).toEqual(["user@example.com"]);
+		expect(defined(spy.sent[0]).subject).toBe("Welcome Lin");
+		expect(defined(spy.sent[0]).from).toBe("default@example.com");
 	});
 
 	it("applies instance `from` (string) when set", async () => {
@@ -119,8 +122,8 @@ describe("rover > BaseMail", () => {
 		});
 
 		await mail.send(new BrandedMail());
-		expect(spy.sent[0].from).toBe("orders@acme.com");
-		expect(spy.sent[0].subject).toBe("Order shipped");
+		expect(defined(spy.sent[0]).from).toBe("orders@acme.com");
+		expect(defined(spy.sent[0]).subject).toBe("Order shipped");
 	});
 
 	it("applies instance `from` in { address, name } form as RFC 5322", async () => {
@@ -133,7 +136,7 @@ describe("rover > BaseMail", () => {
 		});
 
 		await mail.send(new NamedSenderMail());
-		expect(spy.sent[0].from).toBe('"Acme Orders" <orders@acme.com>');
+		expect(defined(spy.sent[0]).from).toBe('"Acme Orders" <orders@acme.com>');
 	});
 
 	it("falls back to config.from when instance `from` is unset", async () => {
@@ -146,7 +149,7 @@ describe("rover > BaseMail", () => {
 		});
 
 		await mail.send(new WelcomeMail("user@example.com", "Kim"));
-		expect(spy.sent[0].from).toBe("default@example.com");
+		expect(defined(spy.sent[0]).from).toBe("default@example.com");
 	});
 
 	it("explicit this.message.from() inside prepare wins over instance `from`", async () => {
@@ -159,7 +162,7 @@ describe("rover > BaseMail", () => {
 		});
 
 		await mail.send(new ExplicitFromInsidePrepareMail());
-		expect(spy.sent[0].from).toBe("custom@acme.com");
+		expect(defined(spy.sent[0]).from).toBe("custom@acme.com");
 	});
 
 	it("this.message.subject() inside prepare overrides instance `subject` shortcut", async () => {
@@ -172,7 +175,7 @@ describe("rover > BaseMail", () => {
 		});
 
 		await mail.send(new SubjectOverrideInsidePrepareMail());
-		expect(spy.sent[0].subject).toBe("Prepare wins");
+		expect(defined(spy.sent[0]).subject).toBe("Prepare wins");
 	});
 
 	it("awaits async prepare() before dispatch", async () => {
@@ -188,7 +191,7 @@ describe("rover > BaseMail", () => {
 		await mail.send(instance);
 
 		expect(instance.fetched).toBe(true);
-		expect(spy.sent[0].subject).toBe("Async");
+		expect(defined(spy.sent[0]).subject).toBe("Async");
 	});
 
 	it("two instances of the same subclass have independent MessageBuilder state", async () => {
@@ -214,8 +217,8 @@ describe("rover > BaseMail", () => {
 			m.to("cb@example.com").subject("Callback").text("still works");
 		});
 
-		expect(spy.sent[0].to).toEqual(["cb@example.com"]);
-		expect(spy.sent[0].from).toBe("default@example.com");
+		expect(defined(spy.sent[0]).to).toEqual(["cb@example.com"]);
+		expect(defined(spy.sent[0]).from).toBe("default@example.com");
 	});
 
 	it("validates transport BEFORE running prepare() — no side-effect leak on misconfig", async () => {
@@ -312,7 +315,7 @@ describe("rover > BaseMail", () => {
 
 	it("propagates a transport rejection unchanged when retries are disabled", async () => {
 		class RejectingTransport implements MailTransport {
-			async send(): Promise<void> {
+			async send(): Promise<MailSendOutcome> {
 				throw new Error("transport down");
 			}
 		}
@@ -456,7 +459,7 @@ describe("rover > BaseMail", () => {
 
 describe("rover > BaseMail builds once (AdonisJS `built` guard)", () => {
 	class Welcome extends BaseMail {
-		subject = "Hi";
+		override subject = "Hi";
 		prepare() {
 			this.message
 				.to("a@b.c")

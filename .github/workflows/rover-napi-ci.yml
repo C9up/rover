@@ -82,6 +82,9 @@ jobs:
           node-version: '22'
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm exec tsc -p tsconfig.build.json --noEmit
+      # The build project is `src` alone, so a type error in a test file
+      # reached nothing that runs here. This is the project that includes them.
+      - run: pnpm typecheck:tests
       - run: pnpm lint
   # Native-runner build matrix. No cross-compilation — each runner produces the
   # binary for its own platform via `pnpm build:napi` (cargo + scripts/copy-napi.mjs).
