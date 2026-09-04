@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
 import type { RoverError } from "../../src/RoverError.js";
 import { MailgunTransport } from "../../src/transports/MailgunTransport.js";
+import { requestInit } from "../__helpers__/defined.js";
 
 const baseMessage = (): MailMessage => ({
 	from: "sender@example.com",
@@ -29,14 +30,11 @@ describe("rover > MailgunTransport", () => {
 
 	/** The multipart body of the one call made. */
 	const form = (): FormData =>
-		(fetchSpy.mock.calls[0]?.[1] as RequestInit).body as FormData;
+		requestInit(fetchSpy.mock.calls, 0).body as FormData;
 	const field = (name: string): string => String(form().get(name) ?? "");
 	const url = (): string => String(fetchSpy.mock.calls[0]?.[0]);
 	const headers = (): Record<string, string> =>
-		(fetchSpy.mock.calls[0]?.[1] as RequestInit).headers as Record<
-			string,
-			string
-		>;
+		requestInit(fetchSpy.mock.calls, 0).headers as Record<string, string>;
 
 	const ok = (body: unknown = { id: "<mg-1@example>", message: "Queued" }) =>
 		new Response(JSON.stringify(body), {

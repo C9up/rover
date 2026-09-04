@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
 import type { RoverError } from "../../src/RoverError.js";
 import { BrevoTransport } from "../../src/transports/BrevoTransport.js";
+import { requestInit } from "../__helpers__/defined.js";
 
 const baseMessage = (): MailMessage => ({
 	from: "sender@example.com",
@@ -40,14 +41,9 @@ describe("rover > BrevoTransport", () => {
 	let fetchSpy: ReturnType<typeof vi.spyOn>;
 
 	const body = (): BrevoBody =>
-		JSON.parse(
-			(fetchSpy.mock.calls[0]?.[1] as RequestInit).body as string,
-		) as BrevoBody;
+		JSON.parse(requestInit(fetchSpy.mock.calls, 0).body as string) as BrevoBody;
 	const headers = () =>
-		(fetchSpy.mock.calls[0]?.[1] as RequestInit).headers as Record<
-			string,
-			string
-		>;
+		requestInit(fetchSpy.mock.calls, 0).headers as Record<string, string>;
 
 	beforeEach(() => {
 		fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(

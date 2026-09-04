@@ -13,7 +13,7 @@ import {
 	registerTransport,
 } from "../../src/index.js";
 import { RoverError } from "../../src/RoverError.js";
-import { defined } from "../__helpers__/defined.js";
+import { defined, stringField } from "../__helpers__/defined.js";
 
 class PassTransport implements MailTransport {
 	async send(_m: MailMessage): Promise<MailSendOutcome> {
@@ -224,7 +224,7 @@ describe("rover > mail events carry the AdonisJS triple", () => {
 		// A listener migrated from @adonisjs/mail reads `message` and
 		// `mailerName`; both used to be absent, leaving it with undefined.
 		expect(sent?.mailerName).toBe("log");
-		expect((sent?.message as { subject?: string }).subject).toBe("Hi");
+		expect(stringField(sent?.message, "subject")).toBe("Hi");
 		// rover's own name for the same string stays, so existing listeners keep
 		// working.
 		expect(sent?.transportName).toBe("log");
@@ -253,7 +253,7 @@ describe("rover > mail events carry the AdonisJS triple", () => {
 			| Record<string, unknown>
 			| undefined;
 		expect(queued?.mailerName).toBe("log");
-		expect((queued?.message as { subject?: string }).subject).toBe("Later");
+		expect(stringField(queued?.message, "subject")).toBe("Later");
 	});
 
 	it("names the template a message was rendered from", async () => {

@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
 import type { RoverError } from "../../src/RoverError.js";
 import { SendGridTransport } from "../../src/transports/SendGridTransport.js";
-import { defined } from "../__helpers__/defined.js";
+import { defined, requestInit } from "../__helpers__/defined.js";
 
 const baseMessage = (): MailMessage => ({
 	from: "sender@example.com",
@@ -49,13 +49,10 @@ describe("rover > SendGridTransport", () => {
 
 	const body = (): SendGridBody =>
 		JSON.parse(
-			(fetchSpy.mock.calls[0]?.[1] as RequestInit).body as string,
+			requestInit(fetchSpy.mock.calls, 0).body as string,
 		) as SendGridBody;
 	const headers = (): Record<string, string> =>
-		(fetchSpy.mock.calls[0]?.[1] as RequestInit).headers as Record<
-			string,
-			string
-		>;
+		requestInit(fetchSpy.mock.calls, 0).headers as Record<string, string>;
 	const url = (): string => String(fetchSpy.mock.calls[0]?.[0]);
 
 	const accepted = (over: HeadersInit = {}) =>

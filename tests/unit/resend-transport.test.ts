@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
 import { RoverError } from "../../src/RoverError.js";
 import { ResendTransport } from "../../src/transports/ResendTransport.js";
+import { requestHeaders } from "../__helpers__/defined.js";
 
 const baseMessage = (): MailMessage => ({
 	from: "sender@example.com",
@@ -53,12 +54,12 @@ describe("rover > ResendTransport", () => {
 		const t = new ResendTransport({ apiKey: "re_abc" });
 		await t.send(baseMessage());
 
-		const [url, init] = fetchSpy.mock.calls[0];
+		const [url] = fetchSpy.mock.calls[0];
 		expect(url).toBe("https://api.resend.com/emails");
-		expect((init?.headers as Record<string, string>).Authorization).toBe(
+		expect(requestHeaders(fetchSpy.mock.calls).Authorization).toBe(
 			"Bearer re_abc",
 		);
-		expect((init?.headers as Record<string, string>)["Content-Type"]).toBe(
+		expect(requestHeaders(fetchSpy.mock.calls)["Content-Type"]).toBe(
 			"application/json",
 		);
 	});
@@ -191,8 +192,7 @@ describe("rover > ResendTransport", () => {
 	it("trims CRLF/whitespace from apiKey config", async () => {
 		const t = new ResendTransport({ apiKey: "re_abc\r\n" });
 		await t.send(baseMessage());
-		const auth = (fetchSpy.mock.calls[0][1]?.headers as Record<string, string>)
-			.Authorization;
+		const auth = requestHeaders(fetchSpy.mock.calls).Authorization;
 		expect(auth).toBe("Bearer re_abc");
 	});
 

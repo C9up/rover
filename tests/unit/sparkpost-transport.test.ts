@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
 import type { RoverError } from "../../src/RoverError.js";
 import { SparkPostTransport } from "../../src/transports/SparkPostTransport.js";
+import { requestInit } from "../__helpers__/defined.js";
 
 const baseMessage = (): MailMessage => ({
 	from: "sender@example.com",
@@ -42,13 +43,10 @@ describe("rover > SparkPostTransport", () => {
 
 	const body = (): SparkPostBody =>
 		JSON.parse(
-			(fetchSpy.mock.calls[0]?.[1] as RequestInit).body as string,
+			requestInit(fetchSpy.mock.calls, 0).body as string,
 		) as SparkPostBody;
 	const headers = () =>
-		(fetchSpy.mock.calls[0]?.[1] as RequestInit).headers as Record<
-			string,
-			string
-		>;
+		requestInit(fetchSpy.mock.calls, 0).headers as Record<string, string>;
 
 	beforeEach(() => {
 		fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(

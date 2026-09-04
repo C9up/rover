@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
 import { RoverError } from "../../src/RoverError.js";
 import { SesTransport } from "../../src/transports/SesTransport.js";
+import { requestBody, requestHeaders } from "../__helpers__/defined.js";
 
 const baseMessage = (): MailMessage => ({
 	from: "sender@example.com",
@@ -62,8 +63,7 @@ describe("rover > SesTransport", () => {
 		msg.replyTo = "reply@example.com";
 		await t.send(msg);
 
-		const [, init] = fetchSpy.mock.calls[0];
-		const form = parseForm(init?.body as string);
+		const form = parseForm(requestBody(fetchSpy.mock.calls));
 		expect(form.Action).toEqual(["SendEmail"]);
 		expect(form.Source).toEqual(["sender@example.com"]);
 		expect(form["Destination.ToAddresses.member.1"]).toEqual([
@@ -90,8 +90,7 @@ describe("rover > SesTransport", () => {
 		];
 		await t.send(msg);
 
-		const [, init] = fetchSpy.mock.calls[0];
-		const form = parseForm(init?.body as string);
+		const form = parseForm(requestBody(fetchSpy.mock.calls));
 		expect(form.Action).toEqual(["SendRawEmail"]);
 		const rawB64 = form["RawMessage.Data"]?.[0] ?? "";
 		const mime = Buffer.from(rawB64, "base64").toString("utf8");
@@ -116,8 +115,7 @@ describe("rover > SesTransport", () => {
 		];
 		await t.send(msg);
 
-		const [, init] = fetchSpy.mock.calls[0];
-		const form = parseForm(String(init?.body));
+		const form = parseForm(requestBody(fetchSpy.mock.calls));
 		expect(form.Action).toEqual(["SendRawEmail"]);
 		const destinations = Object.entries(form)
 			.filter(([k]) => k.startsWith("Destinations.member."))
@@ -137,8 +135,7 @@ describe("rover > SesTransport", () => {
 		const t = new SesTransport({ ...config, region: "us-west-2" });
 		await t.send(baseMessage());
 
-		const [, init] = fetchSpy.mock.calls[0];
-		const auth = (init?.headers as Record<string, string>).authorization;
+		const auth = requestHeaders(fetchSpy.mock.calls).authorization;
 		expect(auth).toMatch(/^AWS4-HMAC-SHA256 /);
 		expect(auth).toContain("Credential=AKIA-TEST/");
 		expect(auth).toContain("/us-west-2/ses/aws4_request");
@@ -154,8 +151,7 @@ describe("rover > SesTransport", () => {
 		msg.replyTo = "reply@x.com\r\nEvil: yes";
 		await t.send(msg);
 
-		const [, init] = fetchSpy.mock.calls[0];
-		const form = parseForm(init?.body as string);
+		const form = parseForm(requestBody(fetchSpy.mock.calls));
 		expect(form["Destination.ToAddresses.member.1"]).toEqual([
 			"user@x.comX-Injected: evil",
 		]);
@@ -219,8 +215,7 @@ describe("rover > SesTransport", () => {
 		expect(fetchSpy.mock.calls[0][0]).toBe(
 			"https://email.us-east-1.amazonaws.com/",
 		);
-		const auth = (fetchSpy.mock.calls[0][1]?.headers as Record<string, string>)
-			.authorization;
+		const auth = requestHeaders(fetchSpy.mock.calls).authorization;
 		expect(auth).toContain("/us-east-1/ses/aws4_request");
 	});
 
@@ -237,8 +232,7 @@ describe("rover > SesTransport", () => {
 			region: "us-east-1",
 		});
 		await t.send(baseMessage());
-		const auth = (fetchSpy.mock.calls[0][1]?.headers as Record<string, string>)
-			.authorization;
+		const auth = requestHeaders(fetchSpy.mock.calls).authorization;
 		expect(auth).toContain("Credential=AKIA-TEST/");
 	});
 
@@ -383,8 +377,7 @@ describe("rover > SesTransport", () => {
 			const msg = baseMessage();
 			await t.send(msg);
 
-			const init = fetchSpy.mock.calls[0][1];
-			const auth = (init?.headers as Record<string, string>).authorization;
+			const auth = requestHeaders(fetchSpy.mock.calls).authorization;
 			// The full signature is deterministic given the inputs; lock it.
 			expect(auth).toBe(
 				"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20260422/us-east-1/ses/aws4_request, " +
