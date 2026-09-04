@@ -78,7 +78,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.10",
-		"@c9up/bay": "^0.1.13",
+		"@c9up/bay": "^0.2.0",
 		"@c9up/helix": "^0.2.0",
 		"@c9up/ream": "^0.2.0",
 		"@types/node": "*",
