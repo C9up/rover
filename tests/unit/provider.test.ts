@@ -15,6 +15,12 @@ type Factory = () => unknown;
 function makeApp(opts: {
 	mailConfig?: unknown;
 	tokens?: Record<string, unknown>;
+	/**
+	 * Tokens that ARE bound but whose factory fails — a bad queue config, a
+	 * driver that cannot connect. Distinct from simply not being bound, which
+	 * is what `has()` answers, and the distinction is the point: rover used to
+	 * read both as "the optional peer is not installed".
+	 */
 	throwOnResolve?: string[];
 }) {
 	const bindings = new Map<unknown, Factory>();
@@ -24,6 +30,11 @@ function makeApp(opts: {
 	const container = {
 		singleton(key: unknown, factory: Factory) {
 			bindings.set(key, factory);
+		},
+		has(key: unknown): boolean {
+			if (typeof key === "string" && throwOn.has(key)) return true;
+			if (typeof key === "string" && key in tokens) return true;
+			return bindings.has(key) || singletons.has(key);
 		},
 		async resolve<T>(key: unknown): Promise<T> {
 			if (typeof key === "string" && throwOn.has(key)) {
@@ -58,7 +69,6 @@ describe("rover > RoverProvider > register", () => {
 				from: "test@example.com",
 				transports: { log: { transport: "log" } },
 			},
-			throwOnResolve: ["QueueManager", "Emitter"],
 		});
 		const provider = new RoverProvider(app);
 		provider.register();
@@ -75,7 +85,6 @@ describe("rover > RoverProvider > register", () => {
 				from: "test@example.com",
 				transports: { log: { transport: "log" } },
 			},
-			throwOnResolve: ["QueueManager", "Emitter"],
 		});
 		new RoverProvider(app).register();
 		const byClass = await app.container.resolve<Mail>(Mail);
@@ -86,7 +95,6 @@ describe("rover > RoverProvider > register", () => {
 	it("falls back to a default log transport when no mail config is registered", async () => {
 		const app = makeApp({
 			mailConfig: undefined,
-			throwOnResolve: ["QueueManager", "Emitter"],
 		});
 		new RoverProvider(app).register();
 		const mail = await app.container.resolve<Mail>(Mail);
@@ -114,20 +122,88 @@ describe("rover > RoverProvider > register", () => {
 		expect(mail).toBeInstanceOf(Mail);
 	});
 
-	it("swallows resolve failures for missing optional peers (tryResolve fallback)", async () => {
+	it("builds without the optional peers when they are not bound", async () => {
 		const app = makeApp({
 			mailConfig: {
 				default: "log",
 				from: "test@example.com",
 				transports: { log: { transport: "log" } },
 			},
-			throwOnResolve: ["QueueManager", "Emitter"],
 		});
 		new RoverProvider(app).register();
-		// The factory runs at resolve-time and must not reject despite the
-		// container's `resolve("QueueManager")` rejecting.
 		await expect(app.container.resolve<Mail>(Mail)).resolves.toBeInstanceOf(
 			Mail,
 		);
+	});
+
+	it("surfaces a bound peer whose factory fails, instead of reading it as absent", async () => {
+		// The distinction that was missing. Catching everything meant a queue
+		// that IS registered but cannot construct — a bad config, a driver that
+		// will not connect — looked exactly like "bay is not installed": rover
+		// disabled the feature silently and mail queued nowhere.
+		const app = makeApp({
+			mailConfig: {
+				default: "log",
+				from: "test@example.com",
+				transports: { log: { transport: "log" } },
+			},
+			throwOnResolve: ["QueueManager"],
+		});
+		new RoverProvider(app).register();
+		await expect(app.container.resolve<Mail>(Mail)).rejects.toThrow(
+			/QueueManager/,
+		);
+	});
+});
+
+describe("rover > RoverProvider > shutdown", () => {
+	it("releases the services/main singleton it installed", async () => {
+		const { getMail } = await import("../../src/services/main.js");
+		const app = makeApp({
+			mailConfig: {
+				default: "log",
+				from: "test@example.com",
+				transports: { log: { transport: "log" } },
+			},
+		});
+		const provider = new RoverProvider(app);
+		provider.register();
+		await provider.boot();
+		expect(getMail()).toBeInstanceOf(Mail);
+
+		await provider.shutdown();
+
+		// A stopped application left a dead Mail reachable through
+		// `import mail from '@c9up/rover/services/main'`.
+		expect(getMail()).toBeUndefined();
+	});
+
+	it("leaves a binding another application has since installed alone", async () => {
+		const { getMail, setMail } = await import("../../src/services/main.js");
+		const app = makeApp({
+			mailConfig: {
+				default: "log",
+				from: "test@example.com",
+				transports: { log: { transport: "log" } },
+			},
+		});
+		const provider = new RoverProvider(app);
+		provider.register();
+		await provider.boot();
+
+		// A second application boots in the same process and takes the singleton
+		// over — two Ignitors in one test run is the ordinary case.
+		const newer = new Mail({
+			default: "log",
+			from: "other@example.com",
+			transports: { log: { transport: "log" } },
+		});
+		setMail(newer);
+
+		await provider.shutdown();
+
+		// The older application must not clear what the newer one bound —
+		// otherwise the survivor's `services/main` throws "accessed before boot".
+		expect(getMail()).toBe(newer);
 	});
 });

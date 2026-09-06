@@ -25,6 +25,18 @@ export function getMail(): Mail | undefined {
 	return instance;
 }
 
+/**
+ * @internal Release the singleton, so a shut-down application does not leave a
+ * dead Mail reachable through `services/main`.
+ *
+ * The caller checks ownership first (`getMail() === mine`): with two
+ * applications in one process, the one shutting down must not clear a binding
+ * the other has since installed.
+ */
+export function clearMail(): void {
+	instance = undefined;
+}
+
 const mail: Mail = new Proxy({} as Mail, {
 	get(_target, prop) {
 		if (!instance) {

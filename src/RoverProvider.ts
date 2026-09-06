@@ -2,7 +2,7 @@ import "./augmentations.js";
 import type { EmitterLike, MailConfig } from "./Mail.js";
 import { Mail } from "./Mail.js";
 import type { BayQueueLike } from "./queue/MailJob.js";
-import { setMail } from "./services/main.js";
+import { clearMail, getMail, setMail } from "./services/main.js";
 
 /**
  * Duck-typed slice of the host's IoC container — rover does NOT import
@@ -11,6 +11,12 @@ import { setMail } from "./services/main.js";
 interface RoverContainer {
 	singleton(token: unknown, factory: () => unknown): void;
 	resolve<T = unknown>(token: unknown): Promise<T>;
+	/**
+	 * Optional reader — present on ream's real container. Asked before resolving
+	 * an OPTIONAL peer, so "not installed" is answered by a lookup rather than
+	 * inferred from whatever resolving it threw.
+	 */
+	has?(token: unknown): boolean;
 }
 interface RoverConfigStore {
 	get<T = unknown>(key: string): T | undefined;
@@ -21,6 +27,9 @@ export interface RoverAppContext {
 }
 
 export default class RoverProvider {
+	/** The Mail this provider bound, so shutdown only clears its own. */
+	#mail: Mail | undefined;
+
 	constructor(protected app: RoverAppContext) {}
 
 	register() {
@@ -58,10 +67,19 @@ export default class RoverProvider {
 		// Populate the `@c9up/rover/services/main` singleton with the
 		// container-resolved Mail instance so apps can
 		// `import mail from '@c9up/rover/services/main'` from anywhere.
-		setMail(await this.app.container.resolve<Mail>(Mail));
+		const mail = await this.app.container.resolve<Mail>(Mail);
+		this.#mail = mail;
+		setMail(mail);
 	}
 
-	async shutdown() {}
+	async shutdown() {
+		// Release the module-level singleton, but only while it is still ours: a
+		// stopped application left a dead Mail reachable through
+		// `services/main`, and with two applications in one process the one
+		// shutting down must not clear a binding the other has since installed.
+		if (this.#mail !== undefined && getMail() === this.#mail) clearMail();
+		this.#mail = undefined;
+	}
 }
 
 /**
@@ -73,9 +91,14 @@ async function tryResolve<T>(
 	app: RoverAppContext,
 	token: string,
 ): Promise<T | undefined> {
-	try {
-		return await app.container.resolve<T>(token);
-	} catch {
+	// ASK whether the token is bound, rather than catching whatever resolving it
+	// throws. Catching everything meant a registered binding whose factory
+	// failed — a bad queue config, a driver that cannot connect — read exactly
+	// like "bay is not installed": rover disabled the feature and said nothing,
+	// and mail queued nowhere. Absence is a `has()` answer; a factory that
+	// throws is a fault, and faults propagate.
+	if (typeof app.container.has === "function" && !app.container.has(token)) {
 		return undefined;
 	}
+	return await app.container.resolve<T>(token);
 }
