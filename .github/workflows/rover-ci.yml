@@ -1,4 +1,4 @@
-# Migrated from the pure-TS rover `ci.yml` to the NAPI 5-platform pattern
+# Migrated from the pure-TS rover CI to the NAPI 5-platform pattern
 # (sigil 40.4 / 52.1 / inker 55.1). The publish job's tag-vs-package.json and
 # drift-fail-closed gates are retained verbatim (only the package name differs).
 name: rover-ci
