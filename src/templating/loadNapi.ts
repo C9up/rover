@@ -8,25 +8,21 @@
 // — every boundary is narrowed with a `Reflect.get` type guard.
 
 import { createRequire } from "node:module";
-import { arch, platform } from "node:process";
 import { fileURLToPath } from "node:url";
 import { RoverError } from "../RoverError.js";
-
-const SUFFIX_MAP: Readonly<Record<string, string>> = {
-	"linux-x64": "linux-x64-gnu",
-	"linux-arm64": "linux-arm64-gnu",
-	"darwin-x64": "darwin-x64",
-	"darwin-arm64": "darwin-arm64",
-	"win32-x64": "win32-x64-msvc",
-};
+import {
+	muslHint,
+	nativeBinarySuffix,
+	supportedTargets,
+} from "../vendor/nativeBinary.js";
 
 function platformSuffix(): string {
-	const key = `${platform}-${arch}`;
-	const suffix = SUFFIX_MAP[key];
-	if (typeof suffix !== "string") {
+	// The table is shared; the refusal is rover's, with rover's code on it.
+	const suffix = nativeBinarySuffix();
+	if (suffix === undefined) {
 		throw new RoverError(
 			"E_MAIL_TEMPLATE_NAPI_REQUIRED",
-			`Unsupported platform/arch '${key}' for @c9up/rover native binary. Supported: ${Object.keys(SUFFIX_MAP).join(", ")}.`,
+			`No @c9up/rover native binary for this platform. Supported: ${supportedTargets().join(", ")}.`,
 			{
 				hint: "Build the native binary on a supported platform with 'pnpm --filter @c9up/rover build:napi'.",
 			},
@@ -83,12 +79,10 @@ export function getNative(): NativeExports {
 		// The prebuilt linux binaries target glibc (`-gnu`). On musl hosts (Alpine
 		// containers) the `-gnu` binary fails to dlopen with a libc symbol error —
 		// surface that explicitly rather than only pointing at the build step.
-		const muslHint = suffix.endsWith("-gnu")
-			? " If you are on Alpine/musl, note the prebuilt binaries target glibc (musl is not a supported target)."
-			: "";
+		const musl = muslHint();
 		throw new RoverError(
 			"E_MAIL_TEMPLATE_NAPI_REQUIRED",
-			`@c9up/rover native binary 'index.${suffix}.node' not found or failed to load near ${here} — run 'pnpm --filter @c9up/rover build:napi' to build it.${muslHint} Cause: ${causeMessage}`,
+			`@c9up/rover native binary 'index.${suffix}.node' not found or failed to load near ${here} — run 'pnpm --filter @c9up/rover build:napi' to build it.${musl} Cause: ${causeMessage}`,
 			{
 				hint: "Run 'pnpm --filter @c9up/rover build:napi' to compile the native template engine.",
 			},
