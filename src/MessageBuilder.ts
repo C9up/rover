@@ -93,6 +93,22 @@ export interface CalendarEventOptions {
 }
 
 /**
+ * The calendar handed to an `icalEvent(callback)`.
+ *
+ * Structural, and deliberately not `ICalCalendar`: `ical-generator` is an
+ * OPTIONAL peer, so importing its type here would make every consumer install
+ * it to typecheck. A caller who has the package gets the real object at
+ * runtime and can annotate their own callback with the real type.
+ */
+export interface CalendarBuilder {
+	createEvent(data: Record<string, unknown>): unknown;
+	toString(): string;
+}
+
+/** Builds the invitation in place (AdonisJS `icalEvent(callback)`). */
+export type CalendarEventCallback = (calendar: CalendarBuilder) => void;
+
+/**
  * A calendar invitation. Exactly one source: inline `content`, a `path` read at
  * {@link MessageBuilder.build} time, or an `href` the provider fetches.
  */
@@ -272,6 +288,11 @@ export class MessageBuilder {
 		headers: {},
 	};
 	#pendingView: { path: string; data: Record<string, unknown> } | null = null;
+	/** An `icalEvent(callback)` waiting for `build()` to run it. */
+	#pendingCalendar: {
+		build: CalendarEventCallback;
+		options?: CalendarEventOptions;
+	} | null = null;
 	/**
 	 * The templates {@link build} actually rendered. Recorded because `build()`
 	 * clears the pending views once they are rendered, and the lifecycle events
@@ -797,7 +818,20 @@ export class MessageBuilder {
 	 * prefer. {@link icalEventFromFile} and {@link icalEventFromUrl} are the
 	 * other two upstream forms, unchanged.
 	 */
-	icalEvent(contents: string, options?: CalendarEventOptions): this {
+	icalEvent(
+		contents: string | CalendarEventCallback,
+		options?: CalendarEventOptions,
+	): this {
+		if (typeof contents === "function") {
+			// Resolved at `build()`, not here: `ical-generator` is an optional
+			// peer that has to be imported dynamically, and the fluent chain
+			// stays synchronous — the same deferral `icalEventFromFile` uses to
+			// read its file.
+			this.#pendingCalendar = { build: contents, options };
+			this.#msg.icalEvent = undefined;
+			return this;
+		}
+		this.#pendingCalendar = null;
 		this.#msg.icalEvent = { ...options, content: contents };
 		return this;
 	}
@@ -854,6 +888,13 @@ export class MessageBuilder {
 	 * longer clobber each other.
 	 */
 	async build(viewsRoot?: string): Promise<MailMessage> {
+		if (this.#pendingCalendar !== null) {
+			this.#msg.icalEvent = {
+				...this.#pendingCalendar.options,
+				content: await renderCalendar(this.#pendingCalendar.build),
+			};
+			this.#pendingCalendar = null;
+		}
 		if (this.#pendingView !== null) {
 			this.#renderedViews.html = {
 				template: this.#pendingView.path,
@@ -941,4 +982,56 @@ function addRecipients(
 		return;
 	}
 	list.push(formatAddress(address, name));
+}
+
+/**
+ * Run an `icalEvent(callback)` against a real `ical-generator` calendar.
+ *
+ * The package is an optional peer: an app that never builds an invitation
+ * should not carry an iCalendar library. When one IS built without it
+ * installed, say exactly that — the alternative is a `Cannot find module`
+ * thrown from inside a mail send, which reads as a mail bug.
+ */
+async function renderCalendar(build: CalendarEventCallback): Promise<string> {
+	let factory: unknown;
+	try {
+		const mod: { default?: unknown } = await import("ical-generator");
+		factory = mod.default;
+	} catch (cause) {
+		throw new RoverError(
+			"E_MAIL_PROVIDER_CONFIG",
+			"icalEvent(callback) needs the `ical-generator` package, which is not installed.",
+			{
+				hint: "Install ical-generator, or pass the ICS yourself with icalEvent(contents).",
+				context: {
+					reason: cause instanceof Error ? cause.message : String(cause),
+				},
+			},
+		);
+	}
+	if (typeof factory !== "function") {
+		throw new RoverError(
+			"E_MAIL_PROVIDER_CONFIG",
+			"`ical-generator` did not export a calendar factory.",
+		);
+	}
+	const calendar: unknown = factory();
+	if (!isCalendarBuilder(calendar)) {
+		throw new RoverError(
+			"E_MAIL_PROVIDER_CONFIG",
+			"`ical-generator` returned an object without createEvent()/toString().",
+		);
+	}
+	build(calendar);
+	return calendar.toString();
+}
+
+function isCalendarBuilder(value: unknown): value is CalendarBuilder {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"createEvent" in value &&
+		typeof value.createEvent === "function" &&
+		typeof value.toString === "function"
+	);
 }
