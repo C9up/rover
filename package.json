@@ -1,7 +1,7 @@
 {
 	"name": "@c9up/rover",
 	"version": "0.1.18",
-	"description": "Mail transport for Ream \u2014 SMTP, log, and pluggable transports",
+	"description": "Mail transport for Ream — SMTP, log, and pluggable transports",
 	"type": "module",
 	"main": "./src/index.ts",
 	"types": "./src/index.ts",
@@ -77,15 +77,15 @@
 		"nodemailer": "^10.0.1"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.4.10",
+		"@biomejs/biome": "^2.5.12",
 		"@c9up/bay": "^0.2.0",
 		"@c9up/helix": "^0.2.0",
 		"@c9up/ream": "^0.2.0",
-		"@types/node": "*",
+		"@types/node": "^22.20.1",
 		"@types/nodemailer": "^8.0.1",
-		"@vitest/coverage-v8": "^4.1.2",
-		"typescript": "^6.0.2",
-		"vitest": "^4.1.2"
+		"@vitest/coverage-v8": "4.1.11",
+		"typescript": "^6.0.3",
+		"vitest": "4.1.11"
 	},
 	"peerDependencies": {
 		"@c9up/helix": "^0.2.0",
