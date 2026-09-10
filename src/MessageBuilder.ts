@@ -810,13 +810,13 @@ export class MessageBuilder {
 	// ── Calendar invitations ──────────────────────────────────────────────
 
 	/**
-	 * Attach a calendar invitation from an ICS string (AdonisJS `icalEvent`).
+	 * Attach a calendar invitation (AdonisJS `icalEvent`).
 	 *
-	 * Named deviation: upstream also accepts a `(calendar: ICalCalendar) => void`
-	 * builder, which is `ical-generator`'s API. rover carries no such
-	 * dependency, so it takes the ICS text — produced by whichever generator you
-	 * prefer. {@link icalEventFromFile} and {@link icalEventFromUrl} are the
-	 * other two upstream forms, unchanged.
+	 * Takes either the ICS text or a `(calendar) => void` builder, as upstream
+	 * does. The builder runs at {@link build} time against an `ical-generator`
+	 * calendar; that package is an OPTIONAL peer, so passing the text needs
+	 * nothing installed. {@link icalEventFromFile} and {@link icalEventFromUrl}
+	 * are the other two upstream forms.
 	 */
 	icalEvent(
 		contents: string | CalendarEventCallback,
