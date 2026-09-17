@@ -1,6 +1,6 @@
 {
   "name": "@c9up/rover",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "description": "Mail transport for Ream — SMTP, log, and pluggable transports",
   "type": "module",
   "main": "./src/index.ts",
@@ -62,6 +62,9 @@
       "types": "./src/webhooks/resend.ts",
       "import": "./src/webhooks/resend.ts"
     }
+  },
+  "engines": {
+    "node": ">=22.0.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
