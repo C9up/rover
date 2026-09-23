@@ -1,6 +1,6 @@
 {
   "name": "@c9up/rover",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "description": "Mail transport for Ream — SMTP, log, and pluggable transports",
   "type": "module",
   "main": "./src/index.ts",
@@ -84,7 +84,7 @@
     "@biomejs/biome": "^2.5.12",
     "@c9up/bay": "^0.2.0",
     "@c9up/helix": "^0.2.0",
-    "@c9up/ream": "^0.2.0",
+    "@c9up/ream": "^0.2.26",
     "@types/node": "^22.20.1",
     "@types/nodemailer": "^8.0.1",
     "@vitest/coverage-v8": "4.1.11",
@@ -94,7 +94,7 @@
   },
   "peerDependencies": {
     "@c9up/helix": "^0.2.0",
-    "@c9up/ream": "^0.2.0",
+    "@c9up/ream": "^0.2.26",
     "ical-generator": ">=8"
   },
   "peerDependenciesMeta": {
@@ -111,6 +111,7 @@
   "files": [
     "src",
     "dist",
+    "stubs",
     "README.md",
     "LICENSE",
     "index.*.node",

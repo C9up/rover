@@ -7,6 +7,8 @@
  * installed AND working.
  */
 
+import { stubsRoot } from "./stubs.js";
+
 interface Codemods {
 	addProvider(importPath: string): Promise<void>;
 	addEnvVars(vars: Record<string, string>): Promise<void>;
@@ -15,6 +17,12 @@ interface Codemods {
 		content: string,
 		options?: { force?: boolean },
 	): Promise<void>;
+	makeUsingStub(
+		stubsRoot: string,
+		stubPath: string,
+		state?: Record<string, string | number | boolean>,
+		options?: { force?: boolean },
+	): Promise<{ path: string; contents: string }>;
 }
 
 export async function configure(codemods: Codemods): Promise<void> {
@@ -29,25 +37,5 @@ export async function configure(codemods: Codemods): Promise<void> {
 	});
 
 	await codemods.addProvider("@c9up/rover/provider");
-	await codemods.writeFile(
-		"config/mail.ts",
-		`import { defineConfig, transports } from '@c9up/rover'
-import env from '#start/env'
-
-export default defineConfig({
-  // Has to name one of the mailers below, or the application refuses to boot.
-  default: env.get('MAIL_MAILER', 'log'),
-  from: env.get('MAIL_FROM', 'noreply@example.com'),
-
-  mailers: {
-    // Writes to the logger instead of sending. The development mailer.
-    log: transports.log(),
-
-    smtp: transports.smtp({
-      host: env.get('SMTP_HOST', ''),
-      port: Number(env.get('SMTP_PORT', '587')),
-    }),
-  },
-})`,
-	);
+	await codemods.makeUsingStub(stubsRoot, "config/mail.stub");
 }
