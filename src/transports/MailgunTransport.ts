@@ -1,3 +1,4 @@
+import { field, stringField } from "../guards.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
@@ -167,35 +168,30 @@ export class MailgunTransport implements MailTransport {
  */
 function wrapMailgunError(err: unknown): RoverError {
 	if (err instanceof RoverError) return err;
-	const anyErr = err as {
-		status?: unknown;
-		details?: string;
-		message?: string;
-		code?: string;
-		headers?: Record<string, string | string[]>;
-	};
 	// Coerce a string-typed status into a number: the field is built here, but
 	// a caller injecting a fake response may still hand one over as text.
-	const statusNum = Number(anyErr.status);
+	const statusNum = Number(field(err, "status"));
 	const status = Number.isFinite(statusNum) ? statusNum : 0;
 	const providerMessage = redactSecrets(
-		capMessage(anyErr.details ?? anyErr.message ?? "unknown"),
+		capMessage(
+			stringField(err, "details") ?? stringField(err, "message") ?? "unknown",
+		),
 	);
 	const ctx: Record<string, string> = {
 		provider: "mailgun",
 		upstreamStatus: String(status),
 		providerMessage,
 	};
-	if (typeof anyErr.code === "string") {
-		ctx.networkCode = anyErr.code;
-	}
+	const code = stringField(err, "code");
+	if (code !== undefined) ctx.networkCode = code;
 	// Retry-After may arrive either as a header (`retry-after`) or as a JSON
 	// body field — pass both upstream so `computeBackoffMs` can honour it.
-	const retryAfterHeader = anyErr.headers?.["retry-after"];
-	if (retryAfterHeader) {
-		ctx.retryAfter = Array.isArray(retryAfterHeader)
-			? (retryAfterHeader[0] ?? "")
-			: retryAfterHeader;
+	const retryAfterHeader = field(field(err, "headers"), "retry-after");
+	const retryAfter = Array.isArray(retryAfterHeader)
+		? retryAfterHeader[0]
+		: retryAfterHeader;
+	if (typeof retryAfter === "string" && retryAfter !== "") {
+		ctx.retryAfter = retryAfter;
 	}
 	return new RoverError(
 		"E_MAIL_PROVIDER_ERROR",

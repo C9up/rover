@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { createPublicKey, verify } from "node:crypto";
 import { emitSafely } from "../emitSafely.js";
+import { numberField, stringField } from "../guards.js";
 import type {
 	WebhookEmitter,
 	WebhookHttpContext,
@@ -16,14 +17,6 @@ export interface SendGridWebhookOptions {
 	 * Set to `Number.POSITIVE_INFINITY` to disable (not recommended).
 	 */
 	maxAgeSeconds?: number;
-}
-
-interface SendGridEvent {
-	event?: string;
-	email?: string;
-	sg_message_id?: string;
-	reason?: string;
-	timestamp?: number;
 }
 
 const EVENT_MAP: Record<string, string> = {
@@ -86,9 +79,9 @@ export function createSendGridWebhookHandler(
 			return;
 		}
 
-		let events: SendGridEvent[];
+		let events: unknown;
 		try {
-			events = JSON.parse(raw.toString("utf8")) as SendGridEvent[];
+			events = JSON.parse(raw.toString("utf8"));
 		} catch {
 			ctx.response.status(400).json({ error: "invalid_json" });
 			return;
@@ -98,15 +91,16 @@ export function createSendGridWebhookHandler(
 			return;
 		}
 		for (const ev of events) {
-			if (!ev.event) continue;
-			const mapped = EVENT_MAP[ev.event];
+			const event = stringField(ev, "event");
+			if (!event) continue;
+			const mapped = EVENT_MAP[event];
 			if (!mapped) continue;
 			try {
 				emitSafely(emitter, mapped, {
-					messageId: ev.sg_message_id ?? "",
-					to: ev.email ?? "",
-					reason: ev.reason,
-					timestamp: normaliseTimestamp(ev.timestamp),
+					messageId: stringField(ev, "sg_message_id") ?? "",
+					to: stringField(ev, "email") ?? "",
+					reason: stringField(ev, "reason"),
+					timestamp: normaliseTimestamp(numberField(ev, "timestamp")),
 				});
 			} catch {
 				// Never let emitter failures flip the webhook response.

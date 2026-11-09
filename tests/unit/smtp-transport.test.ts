@@ -1,4 +1,4 @@
-import nodemailer from "nodemailer";
+import nodemailer, { type SendMailOptions } from "nodemailer";
 import { describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
 import { SmtpTransport } from "../../src/index.js";
@@ -17,14 +17,10 @@ const baseMessage = (): MailMessage => ({
 	headers: {},
 });
 
-interface FakeNodemailerTransporter {
-	sendMail: ReturnType<typeof vi.fn>;
-}
-
 const makeFakeTransporter = (
 	behaviour: { messageId?: string; throwError?: unknown } = {},
-): FakeNodemailerTransporter => ({
-	sendMail: vi.fn(async () => {
+) => ({
+	sendMail: vi.fn(async (_mail: SendMailOptions): Promise<unknown> => {
 		if (behaviour.throwError) throw behaviour.throwError;
 		return { messageId: behaviour.messageId ?? "<smtp-abc@local>" };
 	}),
@@ -33,11 +29,13 @@ const makeFakeTransporter = (
 describe("rover > SmtpTransport (nodemailer)", () => {
 	it("calls transporter.sendMail with from/to/subject/html/text and returns providerId", async () => {
 		const transporter = makeFakeTransporter({ messageId: "<xyz@smtp>" });
-		const t = new SmtpTransport({
-			host: "mail.acme.com",
-			port: 587,
-			_transporter: transporter,
-		});
+		const t = new SmtpTransport(
+			{
+				host: "mail.acme.com",
+				port: 587,
+			},
+			{ transporter },
+		);
 		const result = await t.send(baseMessage());
 		expect(transporter.sendMail).toHaveBeenCalledOnce();
 		const arg = defined(transporter.sendMail.mock.calls[0])[0];
@@ -52,10 +50,12 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 
 	it("forwards replyTo, cc, bcc, headers and attachments only when present", async () => {
 		const transporter = makeFakeTransporter({});
-		const t = new SmtpTransport({
-			host: "m",
-			_transporter: transporter,
-		});
+		const t = new SmtpTransport(
+			{
+				host: "m",
+			},
+			{ transporter },
+		);
 		const msg = baseMessage();
 		msg.cc = ["cc@x.com"];
 		msg.replyTo = ["r@x.com"];
@@ -80,7 +80,7 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 
 	it("throws E_MAIL_PROVIDER_CONFIG when message has no recipients", async () => {
 		const transporter = makeFakeTransporter({});
-		const t = new SmtpTransport({ host: "m", _transporter: transporter });
+		const t = new SmtpTransport({ host: "m" }, { transporter });
 		const msg = baseMessage();
 		msg.to = [];
 		await expect(t.send(msg)).rejects.toMatchObject({
@@ -93,7 +93,7 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 			code: "ECONNRESET",
 		});
 		const transporter = makeFakeTransporter({ throwError: netErr });
-		const t = new SmtpTransport({ host: "m", _transporter: transporter });
+		const t = new SmtpTransport({ host: "m" }, { transporter });
 		await expect(t.send(baseMessage())).rejects.toMatchObject({
 			code: "E_MAIL_PROVIDER_ERROR",
 			context: {
@@ -108,7 +108,7 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 			responseCode: 550,
 		});
 		const transporter = makeFakeTransporter({ throwError: smtpErr });
-		const t = new SmtpTransport({ host: "m", _transporter: transporter });
+		const t = new SmtpTransport({ host: "m" }, { transporter });
 		await expect(t.send(baseMessage())).rejects.toMatchObject({
 			context: { upstreamStatus: "550" },
 		});
@@ -133,12 +133,14 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 		const transporter = makeFakeTransporter({});
 		expect(
 			() =>
-				new SmtpTransport({
-					host: "m",
-					user: "u",
-					pass: "p",
-					_transporter: transporter,
-				}),
+				new SmtpTransport(
+					{
+						host: "m",
+						user: "u",
+						pass: "p",
+					},
+					{ transporter },
+				),
 		).not.toThrow();
 	});
 
@@ -146,7 +148,7 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 		const transporter = makeFakeTransporter({
 			throwError: new Error("boom"),
 		});
-		const t = new SmtpTransport({ host: "m", _transporter: transporter });
+		const t = new SmtpTransport({ host: "m" }, { transporter });
 		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(RoverError);
 	});
 });
@@ -250,5 +252,22 @@ describe("rover > SmtpTransport forwards nodemailer's own options", () => {
 					auth: { user: "x" },
 				}),
 		).toThrow(/both `user`\/`pass` and `auth`/);
+	});
+});
+
+describe("rover > SmtpTransport test seam", () => {
+	it("is a constructor option: a config key cannot swap the transporter", () => {
+		const spy = vi.spyOn(nodemailer, "createTransport");
+		try {
+			const injected = makeFakeTransporter();
+			new SmtpTransport({
+				host: "m",
+				_transporter: injected,
+				transporter: injected,
+			});
+			expect(spy).toHaveBeenCalledOnce();
+		} finally {
+			spy.mockRestore();
+		}
 	});
 });

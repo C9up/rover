@@ -1,3 +1,4 @@
+import { field, stringField } from "./guards.js";
 import { RoverError } from "./RoverError.js";
 
 export interface RetryConfig {
@@ -46,19 +47,15 @@ export function isRetryableError(err: unknown): boolean {
 		return false;
 	}
 	if (err instanceof Error) {
-		const code = (err as { code?: unknown }).code;
-		if (typeof code === "string" && RETRYABLE_ERRNO.has(code)) return true;
+		const code = stringField(err, "code");
+		if (code !== undefined && RETRYABLE_ERRNO.has(code)) return true;
 		// Node 18+ `fetch` (undici) wraps the underlying socket error in
 		// `cause` and surfaces `TypeError: fetch failed` at the top level —
 		// the original errno is on `err.cause.code`, not `err.code`. Without
 		// this branch transient ECONNRESET/ENOTFOUND/etc. from raw fetch
 		// look indistinguishable from a permanent failure and never retry.
-		const cause = (err as { cause?: unknown }).cause;
-		if (cause && typeof cause === "object") {
-			const causeCode = (cause as { code?: unknown }).code;
-			if (typeof causeCode === "string" && RETRYABLE_ERRNO.has(causeCode))
-				return true;
-		}
+		const causeCode = stringField(field(err, "cause"), "code");
+		if (causeCode !== undefined && RETRYABLE_ERRNO.has(causeCode)) return true;
 	}
 	return false;
 }
@@ -112,20 +109,15 @@ export function resolveRetryConfig(
 	globalConfig: Partial<RetryConfig> | undefined,
 	transportConfig: Partial<RetryConfig> | undefined,
 ): Required<RetryConfig> {
-	// Skip entries whose value is `undefined` so a partial override doesn't
-	// clobber a default or global value. Pre-spread filter is required because
-	// `{ ...obj }` propagates explicit-undefined keys.
-	const strip = <T extends object>(x: T | undefined): Partial<T> =>
-		x
-			? (Object.fromEntries(
-					Object.entries(x).filter(([, v]) => v !== undefined),
-				) as Partial<T>)
-			: {};
-
+	// Per field, the most specific value that is set wins; an explicit
+	// `undefined` does not clobber a default or global value.
+	const pick = <K extends keyof RetryConfig>(key: K) =>
+		transportConfig?.[key] ?? globalConfig?.[key] ?? DEFAULT_RETRY_CONFIG[key];
 	const merged: Required<RetryConfig> = {
-		...DEFAULT_RETRY_CONFIG,
-		...strip(globalConfig),
-		...strip(transportConfig),
+		maxAttempts: pick("maxAttempts"),
+		baseDelayMs: pick("baseDelayMs"),
+		factor: pick("factor"),
+		maxDelayMs: pick("maxDelayMs"),
 	};
 	if (!Number.isInteger(merged.maxAttempts) || merged.maxAttempts < 1) {
 		throw new RoverError(

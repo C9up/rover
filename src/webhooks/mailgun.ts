@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { emitSafely } from "../emitSafely.js";
+import { field, numberField, stringField } from "../guards.js";
 import type {
 	WebhookEmitter,
 	WebhookHttpContext,
@@ -68,17 +69,6 @@ export class MemoryWebhookTokenStore implements WebhookTokenStore {
 	}
 }
 
-interface MailgunPayload {
-	signature?: { timestamp?: string; token?: string; signature?: string };
-	"event-data"?: {
-		event?: string;
-		recipient?: string;
-		reason?: string;
-		message?: { headers?: { "message-id"?: string } };
-		timestamp?: number;
-	};
-}
-
 const EVENT_MAP: Record<string, string> = {
 	delivered: "mail.delivered",
 	failed: "mail.failed",
@@ -107,17 +97,22 @@ export function createMailgunWebhookHandler(
 
 	return async (ctx: WebhookHttpContext, _next): Promise<void> => {
 		const raw = await Promise.resolve(ctx.request.rawBody());
-		let payload: MailgunPayload;
+		let payload: unknown;
 		try {
-			payload = JSON.parse(raw.toString("utf8")) as MailgunPayload;
+			payload = JSON.parse(raw.toString("utf8"));
 		} catch {
 			// Collapse parse-failure and signature-failure to the same 401 so
 			// the response doesn't leak which branch rejected.
 			ctx.response.status(401).json({ error: "invalid_signature" });
 			return;
 		}
-		const sig = payload.signature;
-		if (!sig?.timestamp || !sig?.token || !sig?.signature) {
+		const signatureBlock = field(payload, "signature");
+		const sig = {
+			timestamp: stringField(signatureBlock, "timestamp"),
+			token: stringField(signatureBlock, "token"),
+			signature: stringField(signatureBlock, "signature"),
+		};
+		if (!sig.timestamp || !sig.token || !sig.signature) {
 			ctx.response.status(401).json({ error: "invalid_signature" });
 			return;
 		}
@@ -147,21 +142,26 @@ export function createMailgunWebhookHandler(
 			return;
 		}
 
-		const data = payload["event-data"];
-		if (!data?.event) {
+		const data = field(payload, "event-data");
+		const event = stringField(data, "event");
+		if (!event) {
 			ctx.response.status(400).json({ error: "missing_event" });
 			return;
 		}
-		const eventName = EVENT_MAP[data.event];
+		const eventName = EVENT_MAP[event];
 		if (eventName) {
 			try {
 				emitSafely(emitter, eventName, {
-					messageId: data.message?.headers?.["message-id"] ?? "",
-					to: data.recipient ?? "",
-					reason: data.reason,
+					messageId:
+						stringField(
+							field(field(data, "message"), "headers"),
+							"message-id",
+						) ?? "",
+					to: stringField(data, "recipient") ?? "",
+					reason: stringField(data, "reason"),
 					// Some Mailgun event types report `timestamp` already in
 					// milliseconds; detect magnitude rather than blindly *1000.
-					timestamp: normaliseTimestamp(data.timestamp),
+					timestamp: normaliseTimestamp(numberField(data, "timestamp")),
 				});
 			} catch {
 				// Emitter failure must not fail the webhook response — providers

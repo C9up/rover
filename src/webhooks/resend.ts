@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { emitSafely } from "../emitSafely.js";
+import { field, stringField } from "../guards.js";
 import type {
 	WebhookEmitter,
 	WebhookHttpContext,
@@ -35,16 +36,6 @@ function parseTimestamp(raw: string | undefined): number {
 		if (Number.isFinite(t)) return t;
 	}
 	return Date.now();
-}
-
-interface ResendPayload {
-	type?: string;
-	data?: {
-		email_id?: string;
-		to?: string | string[];
-		reason?: string;
-		created_at?: string;
-	};
 }
 
 /**
@@ -123,9 +114,9 @@ export function createResendWebhookHandler(
 			return;
 		}
 
-		let payload: ResendPayload;
+		let payload: unknown;
 		try {
-			payload = JSON.parse(raw.toString("utf8")) as ResendPayload;
+			payload = JSON.parse(raw.toString("utf8"));
 		} catch {
 			ctx.response.status(400).json({ error: "invalid_json" });
 			return;
@@ -167,21 +158,19 @@ function verifySvixSignature(
 }
 
 /** Map a Resend payload to a mail event and emit it; emitter throws are swallowed. */
-function emitMappedEvent(
-	emitter: WebhookEmitter,
-	payload: ResendPayload,
-): void {
-	const mapped = payload.type ? EVENT_MAP[payload.type] : undefined;
+function emitMappedEvent(emitter: WebhookEmitter, payload: unknown): void {
+	const type = stringField(payload, "type");
+	const mapped = type ? EVENT_MAP[type] : undefined;
 	if (!mapped) return;
-	const to = Array.isArray(payload.data?.to)
-		? (payload.data.to[0] ?? "")
-		: (payload.data?.to ?? "");
+	const data = field(payload, "data");
+	const rawTo = field(data, "to");
+	const firstTo = Array.isArray(rawTo) ? rawTo[0] : rawTo;
 	try {
 		emitSafely(emitter, mapped, {
-			messageId: payload.data?.email_id ?? "",
-			to,
-			reason: payload.data?.reason,
-			timestamp: parseTimestamp(payload.data?.created_at),
+			messageId: stringField(data, "email_id") ?? "",
+			to: typeof firstTo === "string" ? firstTo : "",
+			reason: stringField(data, "reason"),
+			timestamp: parseTimestamp(stringField(data, "created_at")),
 		});
 	} catch {
 		// Emitter failures must not flip the webhook response; providers will

@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { field, isRecord, stringField } from "../guards.js";
 import type { MailAttachment, MailMessage } from "../Mail.js";
 import { RoverError } from "../RoverError.js";
 
@@ -82,9 +83,8 @@ function validatePayload(payload: unknown): MailJobPayload {
 			{ hint: "Queue driver returned a non-object — check serialisation." },
 		);
 	}
-	const asObj = payload as Record<string, unknown>;
-	const message = asObj.message;
-	if (!message || typeof message !== "object") {
+	const message = field(payload, "message");
+	if (!isRecord(message)) {
 		throw new RoverError(
 			"E_MAIL_JOB_MALFORMED",
 			"Mail job payload.message is missing or not an object",
@@ -93,13 +93,15 @@ function validatePayload(payload: unknown): MailJobPayload {
 			},
 		);
 	}
-	const m = message as Record<string, unknown>;
-	if (
-		(typeof m.from !== "string" &&
-			(typeof m.from !== "object" || m.from === null)) ||
-		!Array.isArray(m.to) ||
-		!Array.isArray(m.attachments)
-	) {
+	// cc/bcc/headers are optional at the queue boundary: an older producer may
+	// have left them out.
+	const normalised = {
+		...message,
+		cc: message.cc ?? [],
+		bcc: message.bcc ?? [],
+		headers: message.headers ?? {},
+	};
+	if (!hasMailMessageShape(normalised)) {
 		throw new RoverError(
 			"E_MAIL_JOB_MALFORMED",
 			"Mail job payload.message does not match MailMessage shape",
@@ -108,9 +110,26 @@ function validatePayload(payload: unknown): MailJobPayload {
 			},
 		);
 	}
-	const transport =
-		typeof asObj.transport === "string" ? asObj.transport : undefined;
-	return { message: message as MailMessage, transport };
+	return { message: normalised, transport: stringField(payload, "transport") };
+}
+
+/**
+ * The outline of a MailMessage. Only the outline: every address and header
+ * is checked again, in depth, by the dispatch it is handed to.
+ */
+function hasMailMessageShape(
+	m: Record<string, unknown>,
+): m is Record<string, unknown> & MailMessage {
+	return (
+		(typeof m.from === "string" || isRecord(m.from)) &&
+		Array.isArray(m.to) &&
+		Array.isArray(m.cc) &&
+		Array.isArray(m.bcc) &&
+		typeof m.subject === "string" &&
+		Array.isArray(m.attachments) &&
+		m.attachments.every(isRecord) &&
+		isRecord(m.headers)
+	);
 }
 
 /**
@@ -122,9 +141,12 @@ function revive(message: MailMessage): MailMessage {
 	const attachments: MailAttachment[] = message.attachments.map((att) => {
 		if (typeof att.content === "string") return att;
 		if (Buffer.isBuffer(att.content)) return att;
-		const serialised = att.content as { type?: string; data?: number[] };
-		if (serialised?.type === "Buffer" && Array.isArray(serialised.data)) {
-			return { ...att, content: Buffer.from(serialised.data) };
+		const data = field(att.content, "data");
+		if (field(att.content, "type") === "Buffer" && Array.isArray(data)) {
+			return {
+				...att,
+				content: Buffer.from(data.filter((b) => typeof b === "number")),
+			};
 		}
 		return att;
 	});

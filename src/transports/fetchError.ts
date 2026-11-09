@@ -1,3 +1,4 @@
+import { field, stringField } from "../guards.js";
 import { RoverError } from "../RoverError.js";
 
 /**
@@ -15,16 +16,9 @@ export function wrapFetchNetworkError(
 	err: unknown,
 ): RoverError {
 	if (err instanceof RoverError) return err;
-	const top = err as { code?: unknown; cause?: unknown; message?: unknown };
-	const cause = top.cause as { code?: unknown } | undefined;
 	const networkCode =
-		typeof top.code === "string"
-			? top.code
-			: typeof cause?.code === "string"
-				? cause.code
-				: undefined;
-	const message =
-		typeof top.message === "string" ? top.message : "fetch failed";
+		stringField(err, "code") ?? stringField(field(err, "cause"), "code");
+	const message = stringField(err, "message") ?? "fetch failed";
 	const ctx: Record<string, string> = {
 		provider,
 		upstreamStatus: "0",

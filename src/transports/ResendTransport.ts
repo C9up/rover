@@ -1,4 +1,5 @@
 import { formatRecipient, type Recipient } from "../format.js";
+import { stringField } from "../guards.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
@@ -143,10 +144,8 @@ export class ResendTransport implements MailTransport {
 		}
 		// Success: Resend returns `{ id: "<uuid>" }` per API docs.
 		try {
-			const body = (await res.json()) as { id?: string };
-			if (typeof body.id === "string" && body.id.length > 0) {
-				return { providerId: body.id };
-			}
+			const id = stringField(await res.json(), "id");
+			if (id !== undefined && id.length > 0) return { providerId: id };
 		} catch {
 			// Empty body or non-JSON — fall back to generated id.
 		}

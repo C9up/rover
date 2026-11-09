@@ -158,4 +158,24 @@ describe("rover > webhooks > Mailgun token replay", () => {
 		expect(expiring.claim("x", 0)).toBe(true);
 		expect(expiring.claim("x", 300)).toBe(true);
 	});
+
+	it("does not pass provider fields of the wrong type through to listeners", async () => {
+		const events: unknown[] = [];
+		const handler = createMailgunWebhookHandler({
+			signingKey,
+			emitter: { emit: (_name: string, data: unknown) => events.push(data) },
+		});
+		const body = signed("typed", {
+			event: "delivered",
+			recipient: { toString: "evil" },
+			reason: 42,
+			message: { headers: { "message-id": ["m1"] } },
+		});
+		expect((await post(handler, body)).status).toBe(200);
+		expect(events[0]).toMatchObject({
+			messageId: "",
+			to: "",
+			reason: undefined,
+		});
+	});
 });

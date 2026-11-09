@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
-import nodemailer, { type Transporter } from "nodemailer";
+import nodemailer from "nodemailer";
+import type NodemailerMail from "nodemailer/lib/mailer/index.js";
 import type SMTPTransport from "nodemailer/lib/smtp-transport/index.js";
 import { BaseMail, type MailAddress } from "./BaseMail.js";
 import {
@@ -8,6 +9,7 @@ import {
 	type Recipient,
 	toRecipient,
 } from "./format.js";
+import { field, numberField, stringField } from "./guards.js";
 import {
 	assertEnvelope,
 	assertHeaders,
@@ -237,10 +239,23 @@ export interface MailHooks {
  * encoding for 10+ years. We forward the `MailMessage` shape and surface
  * the `messageId` returned by the server.
  */
-export class SmtpTransport implements MailTransport {
-	#transporter: Transporter;
+/** What SmtpTransport needs of nodemailer's transporter. */
+export interface SmtpTransporter {
+	sendMail(mail: NodemailerMail.Options): Promise<unknown>;
+	close?(): void;
+}
 
-	constructor(config: Record<string, unknown>) {
+export class SmtpTransport implements MailTransport {
+	#transporter: SmtpTransporter;
+
+	/**
+	 * @param options.transporter A ready transporter used instead of building
+	 *   one from `config` — a test double, or one the app configured itself.
+	 */
+	constructor(
+		config: Record<string, unknown>,
+		options: { transporter?: SmtpTransporter } = {},
+	) {
 		// Host is required — defaulting to "localhost" silently hid env-var
 		// misconfigurations (SMTP_HOST unset) until the SMTP connection
 		// timed out against a nonexistent local server. Fail at
@@ -281,21 +296,21 @@ export class SmtpTransport implements MailTransport {
 		// Everything else is nodemailer's own SMTP options, forwarded whole as
 		// the upstream SMTP transport does: tls, pool, timeouts, dkim, OAuth2
 		// `auth`, `service`, `name`, `proxy`, logger.
-		const options: SMTPTransport.Options = {};
+		const smtpOptions: SMTPTransport.Options = {};
 		const forwarded: Record<string, unknown> = {};
 		for (const [key, value] of Object.entries(config)) {
 			if (!ROVER_SMTP_KEYS.has(key)) forwarded[key] = value;
 		}
-		Object.assign(options, forwarded);
-		options.port = smtpPort(config.port);
-		if (user && pass) options.auth = { user, pass };
+		Object.assign(smtpOptions, forwarded);
+		smtpOptions.port = smtpPort(config.port);
+		if (user && pass) smtpOptions.auth = { user, pass };
 
 		// Credentials must never cross the wire before TLS is up. nodemailer's
 		// default is opportunistic STARTTLS: when the EHLO reply does not list
 		// STARTTLS, which is all a man in the middle has to strip, it carries on
 		// in plaintext and sends AUTH. requireTLS makes it abort instead.
 		// Stricter than the upstream default, deliberately (RFC 8314 §3.1).
-		if (options.auth !== undefined && config.allowInsecureAuth !== true) {
+		if (smtpOptions.auth !== undefined && config.allowInsecureAuth !== true) {
 			if (
 				config.requireTLS === false ||
 				config.ignoreTLS === true ||
@@ -309,17 +324,11 @@ export class SmtpTransport implements MailTransport {
 					},
 				);
 			}
-			options.requireTLS = true;
+			smtpOptions.requireTLS = true;
 		}
 
-		// Allow DI for tests: if the config carries a pre-built transporter,
-		// use it instead of nodemailer.createTransport.
-		const injected = config._transporter;
-		if (injected && typeof injected === "object" && "sendMail" in injected) {
-			this.#transporter = injected as Transporter;
-		} else {
-			this.#transporter = nodemailer.createTransport(options);
-		}
+		this.#transporter =
+			options.transporter ?? nodemailer.createTransport(smtpOptions);
 	}
 
 	async send(original: MailMessage): Promise<MailSendOutcome> {
@@ -337,9 +346,10 @@ export class SmtpTransport implements MailTransport {
 		}
 		try {
 			const info = await this.#transporter.sendMail(nodemailerOptions(message));
+			const envelope = field(info, "envelope");
 			return {
-				providerId: info.messageId || undefined,
-				envelope: isEnvelope(info.envelope) ? info.envelope : undefined,
+				providerId: stringField(info, "messageId") || undefined,
+				envelope: isEnvelope(envelope) ? envelope : undefined,
 				original: info,
 			};
 		} catch (err) {
@@ -352,7 +362,7 @@ export class SmtpTransport implements MailTransport {
 	 * second close, and a shutdown path may run twice.
 	 */
 	async close(): Promise<void> {
-		this.#transporter.close();
+		this.#transporter.close?.();
 	}
 }
 
@@ -364,7 +374,6 @@ const ROVER_SMTP_KEYS = new Set([
 	"pass",
 	"port",
 	"allowInsecureAuth",
-	"_transporter",
 ]);
 
 /**
@@ -390,29 +399,19 @@ function smtpPort(port: unknown): number | undefined {
  */
 function wrapSmtpError(err: unknown): RoverError {
 	if (err instanceof RoverError) return err;
-	const anyErr = err as {
-		code?: string | number;
-		responseCode?: number;
-		message?: string;
-	};
-	const status =
-		typeof anyErr.responseCode === "number" ? anyErr.responseCode : 0;
+	const status = numberField(err, "responseCode") ?? 0;
+	const message = stringField(err, "message") ?? "unknown";
 	const ctx: Record<string, string> = {
 		provider: "smtp",
 		upstreamStatus: String(status),
-		providerMessage: anyErr.message ?? "unknown",
+		providerMessage: message,
 	};
-	if (typeof anyErr.code === "string") {
-		ctx.networkCode = anyErr.code;
-	}
-	return new RoverError(
-		"E_MAIL_PROVIDER_ERROR",
-		`SMTP failed: ${anyErr.message ?? "unknown"}`,
-		{
-			hint: "Inspect `context.networkCode` (ECONNRESET/ETIMEDOUT/...) or `context.upstreamStatus` (SMTP response code) to decide retry eligibility.",
-			context: ctx,
-		},
-	);
+	const code = stringField(err, "code");
+	if (code !== undefined) ctx.networkCode = code;
+	return new RoverError("E_MAIL_PROVIDER_ERROR", `SMTP failed: ${message}`, {
+		hint: "Inspect `context.networkCode` (ECONNRESET/ETIMEDOUT/...) or `context.upstreamStatus` (SMTP response code) to decide retry eligibility.",
+		context: ctx,
+	});
 }
 
 /**
@@ -1105,7 +1104,7 @@ function errorDescriptor(
 		};
 	}
 	if (err instanceof Error) {
-		const errnoCode = (err as { code?: unknown }).code;
+		const errnoCode = field(err, "code");
 		return {
 			code: typeof errnoCode === "string" ? errnoCode : "E_ROVER_UNKNOWN",
 			message: err.message,

@@ -1,4 +1,5 @@
 import { contactOf } from "../format.js";
+import { field, numberField, stringField } from "../guards.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
@@ -183,30 +184,23 @@ function wrapSendGridError(err: unknown): RoverError {
 	// Built from the HTTP response here, but the older SDK shape
 	// (`{ code, message, response: { body, headers, statusCode } }`) is still
 	// accepted so an injected fake or a wrapped error maps the same way.
-	const anyErr = err as {
-		code?: number | string;
-		message?: string;
-		response?: {
-			statusCode?: number;
-			body?: unknown;
-			headers?: Record<string, string>;
-		};
-	};
-	const statusFromResponse = anyErr.response?.statusCode;
-	const statusFromCode = Number(anyErr.code);
-	const status = Number.isFinite(statusFromResponse as number)
-		? (statusFromResponse as number)
-		: Number.isFinite(statusFromCode)
-			? statusFromCode
-			: 0;
-	const body = anyErr.response?.body;
+	const response = field(err, "response");
+	const statusFromResponse = numberField(response, "statusCode");
+	const statusFromCode = Number(field(err, "code"));
+	const status =
+		statusFromResponse !== undefined && Number.isFinite(statusFromResponse)
+			? statusFromResponse
+			: Number.isFinite(statusFromCode)
+				? statusFromCode
+				: 0;
+	const body = field(response, "body");
 	const providerMessage = redactSecrets(
 		capMessage(
 			typeof body === "string"
 				? body
 				: body !== undefined
 					? JSON.stringify(body)
-					: (anyErr.message ?? "unknown"),
+					: (stringField(err, "message") ?? "unknown"),
 		),
 	);
 	const ctx: Record<string, string> = {
@@ -214,10 +208,9 @@ function wrapSendGridError(err: unknown): RoverError {
 		upstreamStatus: String(status),
 		providerMessage,
 	};
-	if (typeof anyErr.code === "string") {
-		ctx.networkCode = anyErr.code;
-	}
-	const retryAfter = anyErr.response?.headers?.["retry-after"];
+	const code = stringField(err, "code");
+	if (code !== undefined) ctx.networkCode = code;
+	const retryAfter = stringField(field(response, "headers"), "retry-after");
 	if (retryAfter) ctx.retryAfter = retryAfter;
 	return new RoverError(
 		"E_MAIL_PROVIDER_ERROR",

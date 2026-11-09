@@ -1,4 +1,5 @@
 import { contactOf } from "../format.js";
+import { stringField } from "../guards.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
@@ -166,10 +167,8 @@ export class BrevoTransport implements MailTransport {
 		}
 		// Success: Brevo returns `{ messageId: "<id>" }`.
 		try {
-			const parsed = (await res.json()) as { messageId?: string };
-			if (typeof parsed.messageId === "string" && parsed.messageId.length > 0) {
-				return { providerId: parsed.messageId };
-			}
+			const id = stringField(await res.json(), "messageId");
+			if (id !== undefined && id.length > 0) return { providerId: id };
 		} catch {
 			// Empty / non-JSON body — fall back to generated id.
 		}
