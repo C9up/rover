@@ -30,11 +30,13 @@ const RETRYABLE_ERRNO = new Set([
  *     when the HTTP layer never produced a status)
  *   - or it's a raw Error with a matching Node networking errno on `.code`
  * 4xx (non-429) is treated as permanent: retrying won't help.
+ * SMTP replies are classified the other way round, see {@link isRetryableSmtp}.
  */
 export function isRetryableError(err: unknown): boolean {
 	if (err instanceof RoverError && err.code === "E_MAIL_PROVIDER_ERROR") {
 		const statusStr = err.context.upstreamStatus;
 		const status = Number(statusStr);
+		if (err.context.provider === "smtp") return isRetryableSmtp(err, status);
 		if (Number.isFinite(status)) {
 			if (status === 429) return true;
 			if (status >= 500 && status < 600) return true;
@@ -59,6 +61,20 @@ export function isRetryableError(err: unknown): boolean {
 		}
 	}
 	return false;
+}
+
+/**
+ * SMTP reply classes are not HTTP's (RFC 5321 §4.2.1): 4yz is transient and
+ * worth repeating (greylisting, rate limits), 5yz is permanent and MUST NOT be
+ * repeated, so a hard bounce is not hammered. A rejected login is never
+ * retried whatever its code: repeating it only helps lock the account.
+ */
+function isRetryableSmtp(err: RoverError, status: number): boolean {
+	const code = err.context.networkCode;
+	if (code === "EAUTH") return false;
+	if (Number.isFinite(status) && status >= 400 && status < 500) return true;
+	if (Number.isFinite(status) && status >= 500) return false;
+	return code !== undefined && RETRYABLE_ERRNO.has(code);
 }
 
 export function computeBackoffMs(
