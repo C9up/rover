@@ -37,8 +37,18 @@ export function clearMail(): void {
 	instance = undefined;
 }
 
-const mail: Mail = new Proxy({} as Mail, {
+// The target is never read through — every trap forwards to `instance`.
+const target: Mail = Object.create(null);
+
+const mail: Mail = new Proxy(target, {
 	get(_target, prop) {
+		// A module loader inspects what it imports before anyone uses it: it
+		// reads `then` to decide whether the value is thenable, and various
+		// symbols for interop and formatting. They are not members of Mail, so
+		// answer undefined and let a genuine access be the one that reports.
+		if (typeof prop === "symbol" || prop === "then") {
+			return undefined;
+		}
 		if (!instance) {
 			throw new Error(
 				"[rover] Mail singleton accessed before RoverProvider.boot() ran. " +
