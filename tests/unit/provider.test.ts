@@ -92,15 +92,14 @@ describe("rover > RoverProvider > register", () => {
 		expect(byAlias).toBe(byClass);
 	});
 
-	it("falls back to a default log transport when no mail config is registered", async () => {
-		const app = makeApp({
-			mailConfig: undefined,
-		});
+	it("refuses to build Mail when no mail config is registered", async () => {
+		// A missing config/mail.ts must not boot a log-only mailer that prints
+		// reset links to stdout and delivers nothing.
+		const app = makeApp({ mailConfig: undefined });
 		new RoverProvider(app).register();
-		const mail = await app.container.resolve<Mail>(Mail);
-		// The fallback default is `log`, `from: noreply@localhost`. We don't
-		// reach into Mail internals — just prove it constructs successfully.
-		expect(mail).toBeInstanceOf(Mail);
+		await expect(app.container.resolve<Mail>(Mail)).rejects.toMatchObject({
+			code: "E_MAIL_CONFIG_MISSING",
+		});
 	});
 
 	it("wires optional QueueManager / Emitter when registered in the container", async () => {

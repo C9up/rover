@@ -406,13 +406,26 @@ function wrapSmtpError(err: unknown): RoverError {
 
 /**
  * Log transport — logs emails to console (development).
+ *
+ * The body stays out of the log unless `logBody: true` is set: a mailer left on
+ * `log` by mistake would otherwise copy reset links and one-time codes into
+ * the log pipeline. Every field is JSON-encoded, so a CR/LF in a subject
+ * cannot forge a second log line.
  */
 export class LogTransport implements MailTransport {
+	readonly #logBody: boolean;
+
+	constructor(config: Record<string, unknown> = {}) {
+		this.#logBody = config.logBody === true;
+	}
+
 	async send(message: MailMessage): Promise<MailSendOutcome> {
 		console.log(
-			`[MAIL] To: ${message.to.join(", ")} | Subject: ${message.subject}`,
+			`[MAIL] To: ${JSON.stringify(message.to)} | Subject: ${JSON.stringify(message.subject)}`,
 		);
-		if (message.text) console.log(`  Body: ${message.text.slice(0, 200)}`);
+		if (this.#logBody && message.text) {
+			console.log(`  Body: ${JSON.stringify(message.text.slice(0, 200))}`);
+		}
 		return undefined;
 	}
 }
@@ -423,7 +436,7 @@ export type MailTransportFactory = (
 
 const transportFactories: Record<string, MailTransportFactory> = {
 	smtp: (config) => new SmtpTransport(config),
-	log: () => new LogTransport(),
+	log: (config) => new LogTransport(config),
 };
 
 /**

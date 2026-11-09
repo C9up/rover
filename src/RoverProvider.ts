@@ -2,6 +2,7 @@ import "./augmentations.js";
 import type { EmitterLike, MailConfig } from "./Mail.js";
 import { Mail } from "./Mail.js";
 import type { BayQueueLike } from "./queue/MailJob.js";
+import { RoverError } from "./RoverError.js";
 import { clearMail, getMail, setMail } from "./services/main.js";
 
 /**
@@ -35,23 +36,27 @@ export default class RoverProvider {
 	register() {
 		this.app.container.singleton(Mail, async () => {
 			const config = this.app.config.get<MailConfig>("mail");
-			return new Mail(
-				config ?? {
-					default: "log",
-					from: "noreply@localhost",
-					mailers: { log: { transport: "log" } },
-				},
-				{
-					// Optional-peer wiring: if `@c9up/bay` is installed and its
-					// `QueueManager` is registered in the container, Mail gets
-					// queue support for `sendLater()`. If not, `sendLater()`
-					// throws `MAIL_QUEUE_REQUIRED` at call time (by design).
-					queue: await tryResolve<BayQueueLike>(this.app, "QueueManager"),
-					// Same pattern for the event bus `Emitter` — enables `mail.sent`
-					// / `mail.failed` emission when available.
-					emitter: await tryResolve<EmitterLike>(this.app, "Emitter"),
-				},
-			);
+			// No silent fallback: a log-only mailer would boot healthy, deliver
+			// nothing and print every message, reset links included.
+			if (config === undefined || config === null) {
+				throw new RoverError(
+					"E_MAIL_CONFIG_MISSING",
+					'Invalid "config/mail.ts" file: no `mail` config is registered.',
+					{
+						hint: "Create config/mail.ts with defineConfig(), or run `ream configure @c9up/rover`.",
+					},
+				);
+			}
+			return new Mail(config, {
+				// Optional-peer wiring: if `@c9up/bay` is installed and its
+				// `QueueManager` is registered in the container, Mail gets
+				// queue support for `sendLater()`. If not, `sendLater()`
+				// throws `MAIL_QUEUE_REQUIRED` at call time (by design).
+				queue: await tryResolve<BayQueueLike>(this.app, "QueueManager"),
+				// Same pattern for the event bus `Emitter` — enables `mail.sent`
+				// / `mail.failed` emission when available.
+				emitter: await tryResolve<EmitterLike>(this.app, "Emitter"),
+			});
 		});
 		// Namespaced by the package that owns it, the way upstream namespaces
 		// `lucid.db`, `auth.manager` and `drive.manager` by theirs. The bare

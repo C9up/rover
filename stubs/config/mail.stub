@@ -6,11 +6,14 @@ import env from '#start/env'
 
 export default defineConfig({
   // Has to name one of the mailers below, or the application refuses to boot.
-  default: env.get('MAIL_MAILER', 'log'),
+  // No fallback on purpose: an unset MAIL_MAILER must stop the boot, not
+  // quietly select the log mailer, which delivers nothing.
+  default: env.get('MAIL_MAILER', ''),
   from: env.get('MAIL_FROM', 'noreply@example.com'),
 
   mailers: {
-    // Writes to the logger instead of sending. The development mailer.
+    // Writes to the console instead of sending. The development mailer. Bodies
+    // are left out unless `logBody: true` is set.
     log: transports.log(),
 
     smtp: transports.smtp({
