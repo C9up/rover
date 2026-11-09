@@ -8,7 +8,7 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
-import { attachmentsFor } from "../MessageBuilder.js";
+import { assertNoEnvelope, attachmentsFor } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
@@ -88,6 +88,7 @@ export class SesTransport implements MailTransport {
 	}
 
 	async send(message: MailMessage): Promise<MailSendOutcome> {
+		assertNoEnvelope(message, "ses");
 		if (
 			message.to.length === 0 &&
 			message.cc.length === 0 &&

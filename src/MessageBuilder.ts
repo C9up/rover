@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+	assertAddress,
 	assertRecipient,
 	formatRecipient,
 	type Recipient,
@@ -229,6 +230,48 @@ export function attachmentsFor(message: MailMessage): MailAttachment[] {
 	];
 }
 
+/**
+ * Check an envelope: every entry one addr-spec. nodemailer parses envelope
+ * strings as address lists, so `"a@x, b@y"` would add an RCPT TO nobody
+ * asked for.
+ */
+export function assertEnvelope(envelope: unknown): MailEnvelope {
+	if (typeof envelope !== "object" || envelope === null) {
+		throw new RoverError(
+			"E_MAIL_INVALID_MESSAGE",
+			"The envelope must be an object",
+		);
+	}
+	const out: MailEnvelope = {};
+	const from: unknown = Reflect.get(envelope, "from");
+	if (from !== undefined) out.from = assertAddress(from, "envelope sender");
+	for (const field of ["to", "cc", "bcc"] as const) {
+		const value: unknown = Reflect.get(envelope, field);
+		if (value === undefined) continue;
+		out[field] = Array.isArray(value)
+			? value.map((entry) => assertAddress(entry, `envelope ${field}`))
+			: assertAddress(value, `envelope ${field}`);
+	}
+	return out;
+}
+
+/**
+ * Refuse a message whose envelope a provider API cannot express, rather than
+ * deliver it to the header recipients: a caller who set an envelope to
+ * restrict delivery must not have the message reach the visible addresses.
+ */
+export function assertNoEnvelope(message: MailMessage, provider: string): void {
+	if (message.envelope === undefined) return;
+	throw new RoverError(
+		"E_MAIL_FIELD_UNSUPPORTED",
+		`The ${provider} transport cannot set the SMTP envelope.`,
+		{
+			hint: "Send this message through an SMTP mailer, or drop envelope().",
+			context: { provider, field: "envelope" },
+		},
+	);
+}
+
 /** Read a file declared by `attach()` / `embed()` / `icalEventFromFile()`. */
 async function readAttachment(path: string, label: string): Promise<Buffer> {
 	try {
@@ -337,7 +380,7 @@ export class MessageBuilder {
 	 * visible author.
 	 */
 	envelope(envelope: MailEnvelope): this {
-		this.#msg.envelope = envelope;
+		this.#msg.envelope = assertEnvelope(envelope);
 		return this;
 	}
 

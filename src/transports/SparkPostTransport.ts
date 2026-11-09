@@ -6,7 +6,11 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
-import { attachmentsFor, headerValue } from "../MessageBuilder.js";
+import {
+	assertNoEnvelope,
+	attachmentsFor,
+	headerValue,
+} from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
@@ -74,6 +78,7 @@ export class SparkPostTransport implements MailTransport {
 	}
 
 	async send(message: MailMessage): Promise<MailSendOutcome> {
+		assertNoEnvelope(message, "sparkpost");
 		if (
 			message.to.length === 0 &&
 			message.cc.length === 0 &&

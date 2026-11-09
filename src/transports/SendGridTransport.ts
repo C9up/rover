@@ -5,7 +5,11 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
-import { attachmentsFor, headerValue } from "../MessageBuilder.js";
+import {
+	assertNoEnvelope,
+	attachmentsFor,
+	headerValue,
+} from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
@@ -45,6 +49,7 @@ export class SendGridTransport implements MailTransport {
 	}
 
 	async send(message: MailMessage): Promise<MailSendOutcome> {
+		assertNoEnvelope(message, "sendgrid");
 		assertHasRecipients(message);
 
 		// v3 wants the bare address in `email` and the display name apart;

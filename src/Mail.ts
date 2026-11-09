@@ -11,6 +11,7 @@ import {
 	toRecipient,
 } from "./format.js";
 import {
+	assertEnvelope,
 	type MailAttachment,
 	type MailMessage,
 	type MessageBodyTemplates,
@@ -349,6 +350,8 @@ export class SmtpTransport implements MailTransport {
 				// its mail composer, so writing one — as AdonisJS does — never
 				// reaches the wire.
 				watchHtml: message.watchHtml,
+				// MAIL FROM / RCPT TO, when they differ from the headers.
+				envelope: message.envelope ? { ...message.envelope } : undefined,
 				priority: message.priority,
 				messageId: message.messageId,
 				inReplyTo: message.inReplyTo,
@@ -1091,6 +1094,7 @@ function validateMailMessage(message: MailMessage): void {
 		for (const entry of list) assertRecipient(entry, `${field} address`);
 		if (field !== "replyTo") recipients += list.length;
 	}
+	if (message.envelope !== undefined) assertEnvelope(message.envelope);
 	if (recipients === 0) {
 		throw new RoverError(
 			"E_MAIL_INVALID_MESSAGE",
