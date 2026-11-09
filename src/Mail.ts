@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import nodemailer, { type Transporter } from "nodemailer";
+import type SMTPTransport from "nodemailer/lib/smtp-transport/index.js";
 import { BaseMail } from "./BaseMail.js";
 import {
 	type MailAttachment,
@@ -213,13 +214,8 @@ export class SmtpTransport implements MailTransport {
 				hint: "Set config.host (e.g. process.env.SMTP_HOST). Use the fake / log transports for local development.",
 			});
 		}
-		const host = config.host;
-		const port = typeof config.port === "number" ? config.port : 587;
-		const secure = typeof config.secure === "boolean" ? config.secure : false;
 		const user = typeof config.user === "string" ? config.user : undefined;
 		const pass = typeof config.pass === "string" ? config.pass : undefined;
-		const requireTLS =
-			typeof config.requireTLS === "boolean" ? config.requireTLS : undefined;
 		// Partial auth config (only user OR only pass) is almost always a typo —
 		// fail fast rather than connect anonymously and let the server reject.
 		if ((user && !pass) || (!user && pass)) {
@@ -231,19 +227,55 @@ export class SmtpTransport implements MailTransport {
 				},
 			);
 		}
+		if (user && config.auth !== undefined) {
+			throw new RoverError(
+				"E_MAIL_PROVIDER_CONFIG",
+				"SMTP config sets both `user`/`pass` and `auth`",
+				{ hint: "Keep one: the `user`/`pass` shorthand or the `auth` object." },
+			);
+		}
+
+		// Everything else is nodemailer's own SMTP options, forwarded whole as
+		// the upstream SMTP transport does: tls, pool, timeouts, dkim, OAuth2
+		// `auth`, `service`, `name`, `proxy`, logger.
+		const options: SMTPTransport.Options = {};
+		const forwarded: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(config)) {
+			if (!ROVER_SMTP_KEYS.has(key)) forwarded[key] = value;
+		}
+		Object.assign(options, forwarded);
+		options.port = smtpPort(config.port);
+		if (user && pass) options.auth = { user, pass };
+
+		// Credentials must never cross the wire before TLS is up. nodemailer's
+		// default is opportunistic STARTTLS: when the EHLO reply does not list
+		// STARTTLS, which is all a man in the middle has to strip, it carries on
+		// in plaintext and sends AUTH. requireTLS makes it abort instead.
+		// Stricter than the upstream default, deliberately (RFC 8314 §3.1).
+		if (options.auth !== undefined && config.allowInsecureAuth !== true) {
+			if (
+				config.requireTLS === false ||
+				config.ignoreTLS === true ||
+				config.opportunisticTLS === true
+			) {
+				throw new RoverError(
+					"E_MAIL_PROVIDER_CONFIG",
+					"SMTP credentials are configured with TLS turned off (requireTLS: false, ignoreTLS or opportunisticTLS)",
+					{
+						hint: "Use secure: true (port 465) or STARTTLS on 587. For a local development server without TLS, set allowInsecureAuth: true.",
+					},
+				);
+			}
+			options.requireTLS = true;
+		}
+
 		// Allow DI for tests: if the config carries a pre-built transporter,
 		// use it instead of nodemailer.createTransport.
 		const injected = config._transporter;
 		if (injected && typeof injected === "object" && "sendMail" in injected) {
 			this.#transporter = injected as Transporter;
 		} else {
-			this.#transporter = nodemailer.createTransport({
-				host,
-				port,
-				secure,
-				requireTLS,
-				auth: user && pass ? { user, pass } : undefined,
-			});
+			this.#transporter = nodemailer.createTransport(options);
 		}
 	}
 
@@ -311,6 +343,32 @@ export class SmtpTransport implements MailTransport {
 	async close(): Promise<void> {
 		this.#transporter.close();
 	}
+}
+
+/** Config keys rover reads itself; every other key is a nodemailer option. */
+const ROVER_SMTP_KEYS = new Set([
+	"transport",
+	"retry",
+	"user",
+	"pass",
+	"port",
+	"allowInsecureAuth",
+	"_transporter",
+]);
+
+/**
+ * The port as nodemailer wants it. An env value is a string, so `"2525"` is
+ * accepted; left out, nodemailer picks 587, or 465 when `secure` is set.
+ */
+function smtpPort(port: unknown): number | undefined {
+	if (port === undefined || port === "") return undefined;
+	if (typeof port === "number" && Number.isInteger(port)) return port;
+	if (typeof port === "string" && /^\d+$/.test(port)) return Number(port);
+	throw new RoverError(
+		"E_MAIL_PROVIDER_CONFIG",
+		`SMTP port must be an integer, got ${JSON.stringify(port)}`,
+		{ hint: "Set config.port to a number such as 587 or 465." },
+	);
 }
 
 /**

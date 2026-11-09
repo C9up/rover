@@ -1,3 +1,4 @@
+import nodemailer from "nodemailer";
 import { describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
 import { SmtpTransport } from "../../src/index.js";
@@ -146,5 +147,107 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 		});
 		const t = new SmtpTransport({ host: "m", _transporter: transporter });
 		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(RoverError);
+	});
+});
+
+describe("rover > SmtpTransport forwards nodemailer's own options", () => {
+	function optionsFor(
+		config: Record<string, unknown>,
+	): Record<string, unknown> {
+		const spy = vi.spyOn(nodemailer, "createTransport");
+		try {
+			new SmtpTransport(config);
+			const options: unknown = defined(spy.mock.calls[0])[0];
+			if (typeof options !== "object" || options === null) {
+				throw new Error("createTransport got no options");
+			}
+			return { ...options };
+		} finally {
+			spy.mockRestore();
+		}
+	}
+
+	it("passes tls, pool, timeouts, dkim, name, proxy and service through untouched", () => {
+		const tls = { rejectUnauthorized: true, minVersion: "TLSv1.3", ca: "PEM" };
+		const dkim = {
+			domainName: "example.com",
+			keySelector: "s1",
+			privateKey: "k",
+		};
+		const options = optionsFor({
+			transport: "smtp",
+			retry: { maxAttempts: 1 },
+			host: "smtp.example.com",
+			tls,
+			pool: true,
+			maxConnections: 3,
+			maxMessages: 50,
+			rateLimit: 5,
+			connectionTimeout: 1000,
+			greetingTimeout: 2000,
+			socketTimeout: 3000,
+			dkim,
+			name: "client.example.com",
+			proxy: "socks5://127.0.0.1:1080",
+			service: "Mailjet",
+		});
+		expect(options).toMatchObject({
+			host: "smtp.example.com",
+			tls,
+			pool: true,
+			maxConnections: 3,
+			maxMessages: 50,
+			rateLimit: 5,
+			connectionTimeout: 1000,
+			greetingTimeout: 2000,
+			socketTimeout: 3000,
+			dkim,
+			name: "client.example.com",
+			proxy: "socks5://127.0.0.1:1080",
+			service: "Mailjet",
+		});
+		// rover's own keys are not nodemailer options.
+		expect(options).not.toHaveProperty("transport");
+		expect(options).not.toHaveProperty("retry");
+	});
+
+	it("passes an OAuth2 `auth` object through", () => {
+		const auth = { type: "OAuth2", user: "u@example.com", accessToken: "tok" };
+		expect(optionsFor({ host: "m", auth }).auth).toEqual(auth);
+	});
+
+	it("maps the user/pass shorthand onto `auth` and drops the shorthand keys", () => {
+		const options = optionsFor({ host: "m", user: "u", pass: "p" });
+		expect(options.auth).toEqual({ user: "u", pass: "p" });
+		expect(options).not.toHaveProperty("user");
+		expect(options).not.toHaveProperty("pass");
+	});
+
+	it("accepts a numeric-string port, as an env value is", () => {
+		expect(optionsFor({ host: "m", port: "2525" }).port).toBe(2525);
+	});
+
+	it("rejects a port that is not an integer", () => {
+		expect(() => new SmtpTransport({ host: "m", port: "smtp" })).toThrow(
+			/SMTP port must be an integer/,
+		);
+	});
+
+	it("leaves `secure` unset so nodemailer infers implicit TLS on 465", () => {
+		const options = optionsFor({ host: "m", port: 465 });
+		expect(options.port).toBe(465);
+		expect(options.secure).toBeUndefined();
+	});
+
+	it("rejects user/pass and an auth object together", () => {
+		expect(
+			() =>
+				new SmtpTransport({
+					host: "m",
+					user: "u",
+					pass: "p",
+					auth: { user: "x" },
+				}),
+		).toThrow(/both `user`\/`pass` and `auth`/);
 	});
 });

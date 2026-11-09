@@ -15,7 +15,11 @@ export default defineConfig({
 
     smtp: transports.smtp({
       host: env.get('SMTP_HOST', ''),
-      port: Number(env.get('SMTP_PORT', '587')),
+      port: env.get('SMTP_PORT', '587'),
+      // Uncomment if the server needs authentication. Credentials are only
+      // ever sent over TLS: implicit TLS on 465, STARTTLS required on 587.
+      // user: env.get('SMTP_USERNAME'),
+      // pass: env.get('SMTP_PASSWORD'),
     }),
   },
 })
