@@ -20,6 +20,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
 	attachmentsFor,
 	headerValue,
+	listHeaders,
 	MessageBuilder,
 } from "../../src/index.js";
 import { defined } from "../__helpers__/defined.js";
@@ -105,7 +106,7 @@ describe("rover > List-* headers", () => {
 	it("renders a bare URL in angle brackets", async () => {
 		const built = await message().listUnsubscribe("https://x.co/unsub").build();
 
-		expect(built.headers["List-Unsubscribe"]).toBe("<https://x.co/unsub>");
+		expect(listHeaders(built)["List-Unsubscribe"]).toBe("<https://x.co/unsub>");
 	});
 
 	it("renders several values, comments included", async () => {
@@ -116,7 +117,7 @@ describe("rover > List-* headers", () => {
 			])
 			.build();
 
-		expect(built.headers["List-Help"]).toBe(
+		expect(listHeaders(built)["List-Help"]).toBe(
 			"<https://x.co/help>, <mailto:help@x.co> (Email us)",
 		);
 	});
@@ -131,7 +132,7 @@ describe("rover > List-* headers", () => {
 		expect(built.headers["List-Unsubscribe-Post"]).toBe(
 			"List-Unsubscribe=One-Click",
 		);
-		expect(built.headers["List-Unsubscribe"]).toBe("<https://x.co/unsub>");
+		expect(listHeaders(built)["List-Unsubscribe"]).toBe("<https://x.co/unsub>");
 	});
 
 	it("refuses one-click on a mailto:, which cannot answer a POST", () => {
@@ -146,7 +147,7 @@ describe("rover > List-* headers", () => {
 			.listSubscribe("https://x.co/two")
 			.build();
 
-		expect(built.headers["List-Subscribe"]).toBe("<https://x.co/two>");
+		expect(listHeaders(built)["List-Subscribe"]).toBe("<https://x.co/two>");
 	});
 
 	it("titlecases a compound key", async () => {
@@ -154,7 +155,7 @@ describe("rover > List-* headers", () => {
 			.addListHeader("post-only", "https://x.co/p")
 			.build();
 
-		expect(built.headers["List-Post-Only"]).toBe("<https://x.co/p>");
+		expect(listHeaders(built)["List-Post-Only"]).toBe("<https://x.co/p>");
 	});
 });
 

@@ -8,7 +8,11 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
-import { assertNoEnvelope, attachmentsFor } from "../MessageBuilder.js";
+import {
+	assertNoEnvelope,
+	attachmentsFor,
+	headersWithList,
+} from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
@@ -285,7 +289,7 @@ function buildRawMime(message: MailMessage): string {
 		"content-transfer-encoding",
 		"content-disposition",
 	]);
-	for (const [k, raw] of Object.entries(message.headers)) {
+	for (const [k, raw] of Object.entries(headersWithList(message))) {
 		if (reserved.has(k.toLowerCase())) continue;
 		// A PREPARED header is the one case the flag actually decides: this
 		// builds raw MIME, and re-encoding a value that is already exactly what

@@ -9,6 +9,7 @@ import {
 import {
 	assertNoEnvelope,
 	attachmentsFor,
+	headersWithList,
 	headerValue,
 } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
@@ -112,7 +113,7 @@ export class SparkPostTransport implements MailTransport {
 			body.content.reply_to = message.replyTo.map(display).join(", ");
 		}
 		const headers: Record<string, string> = {};
-		for (const [k, raw] of Object.entries(message.headers)) {
+		for (const [k, raw] of Object.entries(headersWithList(message))) {
 			const v = headerValue(raw);
 			headers[stripCrlf(k)] = Array.isArray(v)
 				? v.map(stripCrlf).join(", ")

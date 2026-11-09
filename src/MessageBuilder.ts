@@ -7,6 +7,7 @@ import {
 	assertHeaderValue,
 	assertRecipient,
 	formatRecipient,
+	isAddrSpec,
 	type Recipient,
 	recipientAddress,
 	recipientName,
@@ -358,15 +359,146 @@ function titleCaseKey(key: string): string {
 		.join("-");
 }
 
-/** Render one `List-*` value the way RFC 2369 writes it: `<url> (comment)`. */
-function renderListHeader(
+/** Every entry of a `List-*` value, whatever nesting form it was written in. */
+function listEntries(
 	value: ListHeader | ListHeader[] | ListHeader[][],
-): string {
-	if (typeof value === "string") return `<${value}>`;
-	if (Array.isArray(value)) {
-		return value.map((entry) => renderListHeader(entry)).join(", ");
+): Array<{ url: string; comment?: string }> {
+	if (typeof value === "string") return [{ url: value }];
+	if (Array.isArray(value)) return value.flatMap((entry) => listEntries(entry));
+	return [value];
+}
+
+function invalidList(message: string): RoverError {
+	return new RoverError("E_INVALID_LIST_HEADER", message, {
+		hint: "Give one https:, http:, mailto: or ftp: URL (or a bare address) per entry, without spaces or angle brackets.",
+	});
+}
+
+/** No whitespace, control character or angle bracket. */
+function isBracketSafe(url: string): boolean {
+	for (const char of url) {
+		const code = char.codePointAt(0) ?? 0;
+		if (code <= 0x20 || code === 0x7f || char === "<" || char === ">") {
+			return false;
+		}
+		if (/\s/.test(char)) return false;
 	}
-	return value.comment ? `<${value.url}> (${value.comment})` : `<${value.url}>`;
+	return true;
+}
+
+/** Schemes nodemailer passes through as they are (RFC 2369 §2). */
+const LIST_URL_SCHEME = /^(https?|mailto|ftp):/;
+
+/**
+ * Check one `List-*` entry. The URL goes between angle brackets on the wire,
+ * so a `>` or a space in it would close the bracket and let a second target
+ * follow — a second one-click unsubscribe URL a mailbox provider may POST to.
+ */
+function assertListEntry(
+	key: string,
+	entry: { url: string; comment?: string },
+) {
+	const { url, comment } = entry;
+	if (typeof url !== "string" || url === "" || !isBracketSafe(url)) {
+		throw invalidList(
+			`List-${key} URL ${JSON.stringify(url)} is not a single URL.`,
+		);
+	}
+	if (key.toLowerCase() === "id") {
+		if (!/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(url)) {
+			throw invalidList(
+				`List-Id ${JSON.stringify(url)} is not a list identifier.`,
+			);
+		}
+	} else if (!isAddrSpec(url)) {
+		if (!LIST_URL_SCHEME.test(url) || !URL.canParse(url)) {
+			throw invalidList(
+				`List-${key} URL ${JSON.stringify(url)} is not an https:, http:, mailto: or ftp: URL.`,
+			);
+		}
+	}
+	if (
+		comment !== undefined &&
+		(typeof comment !== "string" || /[\r\n\0]/.test(comment))
+	) {
+		throw invalidList(
+			`List-${key} comment must be a string without line breaks.`,
+		);
+	}
+}
+
+/** RFC 2047 `B` encoded-words, each at most 75 characters. */
+function encodeWords(text: string): string {
+	const words: string[] = [];
+	let chunk = "";
+	for (const char of text) {
+		if (Buffer.byteLength(chunk + char) > 45) {
+			words.push(chunk);
+			chunk = "";
+		}
+		chunk += char;
+	}
+	if (chunk !== "") words.push(chunk);
+	return words
+		.map((word) => `=?UTF-8?B?${Buffer.from(word).toString("base64")}?=`)
+		.join(" ");
+}
+
+/** Whether `text` can travel in a header as is: printable ASCII and tab. */
+function isPlainHeaderText(text: string): boolean {
+	return /^[\t\x20-\x7e]*$/.test(text);
+}
+
+/** One `List-*` entry as nodemailer renders it (mail-message `_getListHeaders`). */
+function renderListEntry(
+	key: string,
+	{ url, comment }: { url: string; comment?: string },
+): string {
+	const bracketed = LIST_URL_SCHEME.test(url)
+		? `<${url}>`
+		: isAddrSpec(url)
+			? `<mailto:${url}>`
+			: `<${url}>`;
+	if (comment === undefined || comment === "") return bracketed;
+	const plain = isPlainHeaderText(comment);
+	if (key.toLowerCase() === "id") {
+		const phrase = plain
+			? `"${comment.replace(/[\\"]/g, "\\$&")}"`
+			: encodeWords(comment);
+		return `${phrase} ${bracketed.replace(/^<[^:]+:\/{0,2}/, "<")}`;
+	}
+	// `(`, `)` and `\` go out as quoted-pairs, or a `)` would close the
+	// comment early and leave the rest of it read as more URLs.
+	const escaped = plain
+		? comment.replace(/[()\\]/g, "\\$&")
+		: encodeWords(comment);
+	return `${bracketed} (${escaped})`;
+}
+
+/**
+ * The `List-*` headers of a message, rendered the way nodemailer renders them,
+ * for the transports that take a plain header map. Several values of one key
+ * are joined with `, ` into one header, as a JSON header map cannot repeat a
+ * key. The SMTP transport hands the structured form to nodemailer instead.
+ */
+export function listHeaders(message: MailMessage): Record<string, string> {
+	const out: Record<string, string> = {};
+	for (const [key, value] of Object.entries(message.list ?? {})) {
+		out[`List-${titleCaseKey(key)}`] = listEntries(value)
+			.map((entry) => renderListEntry(key, entry))
+			.join(", ");
+	}
+	return out;
+}
+
+/**
+ * A message's own headers plus its rendered `List-*` headers: what a
+ * transport without nodemailer's `list` field sends.
+ */
+export function headersWithList(
+	message: MailMessage,
+): Record<string, string | string[] | PreparedHeader> {
+	return { ...message.headers, ...listHeaders(message) };
 }
 
 function expect(passed: boolean, expectation: string, actual: unknown): void {
@@ -898,6 +1030,7 @@ export class MessageBuilder {
 		value: ListHeader | ListHeader[] | ListHeader[][],
 	): this {
 		assertHeaderName(`List-${key}`);
+		for (const entry of listEntries(value)) assertListEntry(key, entry);
 		this.#msg.list ??= {};
 		this.#msg.list[key] = value;
 		return this;
@@ -917,7 +1050,8 @@ export class MessageBuilder {
 	): this {
 		if (options?.oneClick === true) {
 			for (const url of listUrls(value)) {
-				if (!url.toLowerCase().startsWith("http")) {
+				// RFC 8058 §3.1: the one-click target MUST be HTTPS.
+				if (!URL.canParse(url) || new URL(url).protocol !== "https:") {
 					throw new RoverError(
 						"E_INVALID_LIST_HEADER",
 						`listUnsubscribe({ oneClick: true }) needs an https URL that can answer a POST, got "${url}".`,
@@ -1088,13 +1222,10 @@ export class MessageBuilder {
 				await readAttachment(ical.path, "the calendar event")
 			).toString("utf8");
 		}
-		// `List-*` headers are rendered here, once, rather than in each transport:
-		// every transport already forwards `headers`, and only nodemailer has a
-		// structured `list` field. `#msg.list` stays as the structured record the
-		// `hasListHeader` inspection reads.
-		for (const [key, value] of Object.entries(this.#msg.list ?? {})) {
-			this.#msg.headers[`List-${titleCaseKey(key)}`] = renderListHeader(value);
-		}
+		// `List-*` stay structured in `list`: SMTP hands them to nodemailer,
+		// which escapes and folds them, and the other transports render them
+		// with `listHeaders()`. Rendering them into `headers` here as well
+		// would emit each one twice over SMTP.
 		return this.#msg;
 	}
 }

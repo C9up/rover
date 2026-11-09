@@ -52,7 +52,12 @@ export type {
 	RecipientInput,
 	RecipientObject,
 } from "./MessageBuilder.js";
-export { attachmentsFor, headerValue } from "./MessageBuilder.js";
+export {
+	attachmentsFor,
+	headersWithList,
+	headerValue,
+	listHeaders,
+} from "./MessageBuilder.js";
 export { RoverError } from "./RoverError.js";
 export { default as RoverProvider } from "./RoverProvider.js";
 export {

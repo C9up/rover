@@ -9,6 +9,7 @@ import {
 import {
 	assertNoEnvelope,
 	attachmentsFor,
+	headersWithList,
 	headerValue,
 } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
@@ -96,7 +97,7 @@ export class ResendTransport implements MailTransport {
 				};
 			});
 		}
-		const customHeaders = Object.entries(message.headers);
+		const customHeaders = Object.entries(headersWithList(message));
 		if (customHeaders.length > 0) {
 			body.headers = {};
 			for (const [k, raw] of customHeaders) {

@@ -8,6 +8,7 @@ import {
 import {
 	assertNoEnvelope,
 	attachmentsFor,
+	headersWithList,
 	headerValue,
 } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
@@ -113,7 +114,7 @@ export class MailgunTransport implements MailTransport {
 		if (message.replyTo?.length) {
 			data["h:Reply-To"] = message.replyTo.map(display).join(", ");
 		}
-		for (const [k, raw] of Object.entries(message.headers)) {
+		for (const [k, raw] of Object.entries(headersWithList(message))) {
 			const v = headerValue(raw);
 			data[`h:${stripCrlf(k)}`] = Array.isArray(v)
 				? v.map(stripCrlf).join(", ")

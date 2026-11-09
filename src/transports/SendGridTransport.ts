@@ -8,6 +8,7 @@ import {
 import {
 	assertNoEnvelope,
 	attachmentsFor,
+	headersWithList,
 	headerValue,
 } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
@@ -76,9 +77,9 @@ export class SendGridTransport implements MailTransport {
 		} else if (replyTo.length > 1) {
 			body.reply_to_list = replyTo.map(address);
 		}
-		if (Object.keys(message.headers).length) {
+		if (Object.keys(headersWithList(message)).length) {
 			body.headers = Object.fromEntries(
-				Object.entries(message.headers).map(([k, raw]) => {
+				Object.entries(headersWithList(message)).map(([k, raw]) => {
 					const v = headerValue(raw);
 					return [
 						stripCrlf(k),

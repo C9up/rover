@@ -363,9 +363,9 @@ export class SmtpTransport implements MailTransport {
 					? message.headers
 					: undefined,
 				encoding: message.encoding,
-				// `list` is NOT passed: `build()` already rendered the `List-*`
-				// headers into `headers`, so handing nodemailer the structured form
-				// too would emit each of them twice.
+				// nodemailer renders `List-*` itself: brackets the URLs, escapes
+				// and encodes the comments, folds the line.
+				list: message.list,
 				icalEvent: message.icalEvent,
 				attachments: message.attachments.length
 					? message.attachments.map((att) => ({
