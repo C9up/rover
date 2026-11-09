@@ -93,7 +93,7 @@ describe("rover > MailgunTransport", () => {
 			...baseMessage(),
 			cc: ["cc@example.com"],
 			bcc: ["bcc@example.com"],
-			replyTo: "reply@example.com",
+			replyTo: ["reply@example.com"],
 			headers: { "X-Campaign": "spring" },
 			attachments: [
 				{
@@ -123,7 +123,7 @@ describe("rover > MailgunTransport", () => {
 			...baseMessage(),
 			to: ["user@example.com\r\nBcc: attacker@evil.test"],
 			subject: "Hello\r\nX-Injected: 1",
-			replyTo: "reply@example.com\r\n",
+			replyTo: ["reply@example.com\r\n"],
 			headers: { "X-Tag": "one\r\ntwo" },
 		});
 

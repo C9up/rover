@@ -27,7 +27,7 @@ const baseMessage = (): MailMessage => ({
 
 interface SparkPostBody {
 	content: {
-		from: string;
+		from: { email: string; name?: string };
 		subject: string;
 		html?: string;
 		text?: string;
@@ -92,9 +92,12 @@ describe("rover > SparkPostTransport", () => {
 		);
 	});
 
-	it("splits a formatted address into SparkPost's address shape", async () => {
+	it("maps structured addresses onto SparkPost's address shape", async () => {
 		const message = baseMessage();
-		message.to = ['"Ada Lovelace" <ada@acme.test>', "bare@acme.test"];
+		message.to = [
+			{ address: "ada@acme.test", name: "Ada Lovelace" },
+			"bare@acme.test",
+		];
 		await new SparkPostTransport({ apiKey: "k" }).send(message);
 
 		expect(body().recipients).toEqual([
@@ -139,7 +142,7 @@ describe("rover > SparkPostTransport", () => {
 
 	it("carries reply-to, html and text through", async () => {
 		const message = baseMessage();
-		message.replyTo = "reply@acme.test";
+		message.replyTo = ["reply@acme.test"];
 		await new SparkPostTransport({ apiKey: "k" }).send(message);
 
 		expect(body().content.reply_to).toBe("reply@acme.test");
@@ -176,7 +179,7 @@ describe("rover > SparkPostTransport", () => {
 		await new SparkPostTransport({ apiKey: "k" }).send(message);
 
 		expect(body().content.subject).not.toMatch(/[\r\n]/);
-		expect(body().content.from).not.toMatch(/[\r\n]/);
+		expect(JSON.stringify(body().content.from)).not.toMatch(/\\r|\\n/);
 		expect(body().content.headers?.["X-Tag"]).not.toMatch(/[\r\n]/);
 	});
 

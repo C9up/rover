@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { createHash, createHmac, randomBytes } from "node:crypto";
+import { formatRecipient, type Recipient } from "../format.js";
 import {
 	type MailAttachment,
 	type MailMessage,
@@ -12,6 +13,7 @@ import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
+const display = (r: Recipient): string => stripCrlf(formatRecipient(r));
 const normalizeConfig = (v: string): string => stripCrlf(v).trim();
 /** RFC 2183: quote `"` and `\` inside filename="..." / name="..." parameters. */
 const mimeQuote = (v: string): string =>
@@ -204,19 +206,19 @@ export class SesTransport implements MailTransport {
 function buildSendEmailForm(message: MailMessage): string {
 	const params: Array<[string, string]> = [];
 	params.push(["Action", "SendEmail"]);
-	params.push(["Source", stripCrlf(message.from)]);
+	params.push(["Source", display(message.from)]);
 	message.to.forEach((addr, i) => {
-		params.push([`Destination.ToAddresses.member.${i + 1}`, stripCrlf(addr)]);
+		params.push([`Destination.ToAddresses.member.${i + 1}`, display(addr)]);
 	});
 	message.cc.forEach((addr, i) => {
-		params.push([`Destination.CcAddresses.member.${i + 1}`, stripCrlf(addr)]);
+		params.push([`Destination.CcAddresses.member.${i + 1}`, display(addr)]);
 	});
 	message.bcc.forEach((addr, i) => {
-		params.push([`Destination.BccAddresses.member.${i + 1}`, stripCrlf(addr)]);
+		params.push([`Destination.BccAddresses.member.${i + 1}`, display(addr)]);
 	});
-	if (message.replyTo) {
-		params.push(["ReplyToAddresses.member.1", stripCrlf(message.replyTo)]);
-	}
+	(message.replyTo ?? []).forEach((addr, i) => {
+		params.push([`ReplyToAddresses.member.${i + 1}`, display(addr)]);
+	});
 	params.push(["Message.Subject.Data", stripCrlf(message.subject)]);
 	params.push(["Message.Subject.Charset", "UTF-8"]);
 	if (message.html) {
@@ -251,7 +253,7 @@ function buildRawEmailForm(message: MailMessage): string {
 		const recipients = [...message.to, ...message.cc, ...message.bcc];
 		recipients.forEach((addr, i) => {
 			parts.push(
-				`Destinations.member.${i + 1}=${encodeURIComponent(stripCrlf(addr))}`,
+				`Destinations.member.${i + 1}=${encodeURIComponent(display(addr))}`,
 			);
 		});
 	}
@@ -260,13 +262,14 @@ function buildRawEmailForm(message: MailMessage): string {
 
 function buildRawMime(message: MailMessage): string {
 	const parts: string[] = [];
-	parts.push(`From: ${encodeHeaderWord(message.from)}`);
-	parts.push(`To: ${message.to.map(encodeHeaderWord).join(", ")}`);
+	const header = (r: Recipient) => encodeHeaderWord(formatRecipient(r));
+	parts.push(`From: ${header(message.from)}`);
+	parts.push(`To: ${message.to.map(header).join(", ")}`);
 	if (message.cc.length) {
-		parts.push(`Cc: ${message.cc.map(encodeHeaderWord).join(", ")}`);
+		parts.push(`Cc: ${message.cc.map(header).join(", ")}`);
 	}
-	if (message.replyTo)
-		parts.push(`Reply-To: ${encodeHeaderWord(message.replyTo)}`);
+	if (message.replyTo?.length)
+		parts.push(`Reply-To: ${message.replyTo.map(header).join(", ")}`);
 	parts.push(`Subject: ${encodeHeaderWord(message.subject)}`);
 	parts.push("MIME-Version: 1.0");
 	const reserved = new Set([

@@ -1,5 +1,10 @@
 import type { PluginApi } from "@c9up/helix";
 import { BaseMail } from "../BaseMail.js";
+import {
+	formatRecipient,
+	type Recipient,
+	recipientAddress,
+} from "../format.js";
 import type { MailMessage, MailSendOutcome, MailTransport } from "../Mail.js";
 
 export interface FakeMailPredicate {
@@ -259,7 +264,7 @@ function cloneMessage(m: MailMessage): MailMessage {
 		to: m.to.slice(),
 		cc: m.cc.slice(),
 		bcc: m.bcc.slice(),
-		replyTo: m.replyTo,
+		replyTo: m.replyTo?.slice(),
 		subject: m.subject,
 		html: m.html,
 		text: m.text,
@@ -283,12 +288,14 @@ function makeMatcher(
 		);
 	}
 	return (m) => {
-		if (p.from !== undefined && m.from !== p.from) return false;
-		if (p.replyTo !== undefined && m.replyTo !== p.replyTo) return false;
+		if (p.from !== undefined && !matchesAddress(m.from, p.from)) return false;
+		if (p.replyTo !== undefined && !includesAddress(m.replyTo, p.replyTo)) {
+			return false;
+		}
 		if (p.subject !== undefined && m.subject !== p.subject) return false;
-		if (p.to !== undefined && !m.to.includes(p.to)) return false;
-		if (p.cc !== undefined && !m.cc.includes(p.cc)) return false;
-		if (p.bcc !== undefined && !m.bcc.includes(p.bcc)) return false;
+		if (p.to !== undefined && !includesAddress(m.to, p.to)) return false;
+		if (p.cc !== undefined && !includesAddress(m.cc, p.cc)) return false;
+		if (p.bcc !== undefined && !includesAddress(m.bcc, p.bcc)) return false;
 		if (p.containing !== undefined) {
 			const needle = p.containing;
 			const inHtml = m.html?.includes(needle) ?? false;
@@ -297,6 +304,21 @@ function makeMatcher(
 		}
 		return true;
 	};
+}
+
+/** A predicate names a mailbox by its bare address or its display form. */
+function matchesAddress(recipient: Recipient, needle: string): boolean {
+	return (
+		recipientAddress(recipient) === needle ||
+		formatRecipient(recipient) === needle
+	);
+}
+
+function includesAddress(
+	list: readonly Recipient[] | undefined,
+	needle: string,
+): boolean {
+	return (list ?? []).some((recipient) => matchesAddress(recipient, needle));
 }
 
 function describePredicate(predicate: FakeMailPredicateArg): string {
@@ -308,7 +330,7 @@ function describeCaptured(captured: Capture[]): string {
 	if (captured.length === 0) return "Captured: (none)";
 	const lines = captured.map(
 		(e, i) =>
-			`  [${i}] to=[${e.message.to.join(", ")}] subject="${e.message.subject}" from="${e.message.from}"`,
+			`  [${i}] to=[${e.message.to.map(formatRecipient).join(", ")}] subject="${e.message.subject}" from="${formatRecipient(e.message.from)}"`,
 	);
 	return `Captured (${captured.length}):\n${lines.join("\n")}`;
 }

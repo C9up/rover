@@ -61,7 +61,11 @@ describe("rover > the assertions throw on a mismatch", () => {
 		["to", (m) => m.assertTo("someone@else.test"), /to include/],
 		["cc", (m) => m.assertCc("someone@else.test"), /cc to include/],
 		["bcc", (m) => m.assertBcc("someone@else.test"), /bcc to include/],
-		["replyTo", (m) => m.assertReplyTo("someone@else.test"), /replyTo to be/],
+		[
+			"replyTo",
+			(m) => m.assertReplyTo("someone@else.test"),
+			/replyTo to include/,
+		],
 		["subject", (m) => m.assertSubject("Something else"), /subject to be/],
 		["recipient", (m) => m.assertRecipient("someone@else.test"), /to reach/],
 		["content", (m) => m.assertContent("nowhere in the body"), /to contain/],
@@ -220,7 +224,7 @@ describe("rover > recipients given as a list", () => {
 
 		expect(built.to).toEqual([
 			"plain@acme.test",
-			'"Named Person" <named@acme.test>',
+			{ address: "named@acme.test", name: "Named Person" },
 		]);
 		expect(built.cc).toEqual(["cc1@acme.test", "cc2@acme.test"]);
 	});

@@ -88,7 +88,7 @@ describe("rover > SendGridTransport", () => {
 			...baseMessage(),
 			cc: ["cc@example.com"],
 			bcc: ["bcc@example.com"],
-			replyTo: "reply@example.com",
+			replyTo: ["reply@example.com"],
 			headers: { "X-Campaign": "spring" },
 			attachments: [
 				{
@@ -132,7 +132,7 @@ describe("rover > SendGridTransport", () => {
 			...baseMessage(),
 			to: ["user@example.com\r\nBcc: attacker@evil.test"],
 			subject: "Hello\r\nX-Injected: 1",
-			replyTo: "reply@example.com\r\n",
+			replyTo: ["reply@example.com\r\n"],
 			headers: { "X-Tag": "one\r\ntwo" },
 			attachments: [{ filename: "a\r\nb.pdf", content: Buffer.from("x") }],
 		});

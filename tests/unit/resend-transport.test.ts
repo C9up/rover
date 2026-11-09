@@ -22,7 +22,7 @@ interface ResendPayload {
 	to: string[];
 	cc?: string[];
 	bcc?: string[];
-	reply_to?: string;
+	reply_to?: string[];
 	subject: string;
 	html?: string;
 	text?: string;
@@ -69,7 +69,7 @@ describe("rover > ResendTransport", () => {
 		const msg = baseMessage();
 		msg.cc = ["cc@example.com"];
 		msg.bcc = ["bcc@example.com"];
-		msg.replyTo = "reply@example.com";
+		msg.replyTo = ["reply@example.com"];
 		await t.send(msg);
 
 		const body = parseBody(fetchSpy.mock.calls[0]);
@@ -77,7 +77,7 @@ describe("rover > ResendTransport", () => {
 		expect(body.to).toEqual(["user@example.com"]);
 		expect(body.cc).toEqual(["cc@example.com"]);
 		expect(body.bcc).toEqual(["bcc@example.com"]);
-		expect(body.reply_to).toBe("reply@example.com");
+		expect(body.reply_to).toEqual(["reply@example.com"]);
 		expect(body.subject).toBe("Hello");
 		expect(body.html).toBe("<p>Hi</p>");
 		expect(body.text).toBe("Hi");
@@ -119,13 +119,13 @@ describe("rover > ResendTransport", () => {
 		const msg = baseMessage();
 		msg.to = ["user@x.com\r\nX-Injected: evil"];
 		msg.subject = "Hi\r\nBcc: victim@y.com";
-		msg.replyTo = "reply@x.com\r\nEvil: yes";
+		msg.replyTo = ["reply@x.com\r\nEvil: yes"];
 		await t.send(msg);
 
 		const body = parseBody(fetchSpy.mock.calls[0]);
 		expect(body.to).toEqual(["user@x.comX-Injected: evil"]);
 		expect(body.subject).toBe("HiBcc: victim@y.com");
-		expect(body.reply_to).toBe("reply@x.comEvil: yes");
+		expect(body.reply_to).toEqual(["reply@x.comEvil: yes"]);
 	});
 
 	it("throws E_MAIL_PROVIDER_ERROR on 422", async () => {

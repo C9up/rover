@@ -87,10 +87,13 @@ describe("rover > BrevoTransport", () => {
 		);
 	});
 
-	it("splits a formatted address into Brevo's contact shape", async () => {
+	it("maps structured addresses onto Brevo's contact shape", async () => {
 		const message = baseMessage();
-		message.from = '"Ada Lovelace" <ada@acme.test>';
-		message.to = ["Grace Hopper <grace@acme.test>", "bare@acme.test"];
+		message.from = { address: "ada@acme.test", name: "Ada Lovelace" };
+		message.to = [
+			{ address: "grace@acme.test", name: "Grace Hopper" },
+			"bare@acme.test",
+		];
 		await new BrevoTransport({ apiKey: "k" }).send(message);
 
 		expect(body().sender).toEqual({
@@ -113,7 +116,7 @@ describe("rover > BrevoTransport", () => {
 		const message = baseMessage();
 		message.cc = ["cc@acme.test"];
 		message.bcc = ["bcc@acme.test"];
-		message.replyTo = "reply@acme.test";
+		message.replyTo = ["reply@acme.test"];
 		await new BrevoTransport({ apiKey: "k" }).send(message);
 
 		expect(body().cc).toEqual([{ email: "cc@acme.test" }]);

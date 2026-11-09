@@ -60,7 +60,7 @@ describe("rover > SesTransport", () => {
 		const t = new SesTransport(config);
 		const msg = baseMessage();
 		msg.cc = ["cc@example.com"];
-		msg.replyTo = "reply@example.com";
+		msg.replyTo = ["reply@example.com"];
 		await t.send(msg);
 
 		const form = parseForm(requestBody(fetchSpy.mock.calls));
@@ -148,7 +148,7 @@ describe("rover > SesTransport", () => {
 		const msg = baseMessage();
 		msg.to = ["user@x.com\r\nX-Injected: evil"];
 		msg.subject = "Hi\r\nBcc: victim@y.com";
-		msg.replyTo = "reply@x.com\r\nEvil: yes";
+		msg.replyTo = ["reply@x.com\r\nEvil: yes"];
 		await t.send(msg);
 
 		const form = parseForm(requestBody(fetchSpy.mock.calls));

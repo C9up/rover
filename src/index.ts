@@ -47,6 +47,7 @@ export type {
 	MailEnvelope,
 	PreparedHeader,
 	Recipient,
+	RecipientInput,
 	RecipientObject,
 } from "./MessageBuilder.js";
 export { attachmentsFor, headerValue } from "./MessageBuilder.js";

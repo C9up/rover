@@ -191,7 +191,10 @@ describe("rover > message body and envelope", () => {
 			.build();
 		// The bounce address is not the author the reader sees.
 		expect(message.envelope?.from).toBe("bounces+reader@acme.test");
-		expect(message.from).toContain("newsletter@acme.test");
+		expect(message.from).toEqual({
+			address: "newsletter@acme.test",
+			name: "Acme",
+		});
 	});
 });
 

@@ -95,7 +95,8 @@ function validatePayload(payload: unknown): MailJobPayload {
 	}
 	const m = message as Record<string, unknown>;
 	if (
-		typeof m.from !== "string" ||
+		(typeof m.from !== "string" &&
+			(typeof m.from !== "object" || m.from === null)) ||
 		!Array.isArray(m.to) ||
 		!Array.isArray(m.attachments)
 	) {
@@ -103,7 +104,7 @@ function validatePayload(payload: unknown): MailJobPayload {
 			"E_MAIL_JOB_MALFORMED",
 			"Mail job payload.message does not match MailMessage shape",
 			{
-				hint: "Expected `{ from: string, to: string[], ..., attachments: [] }`.",
+				hint: "Expected `{ from: Recipient, to: Recipient[], ..., attachments: [] }`.",
 			},
 		);
 	}

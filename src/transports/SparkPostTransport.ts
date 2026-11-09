@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { contactOf, formatRecipient, type Recipient } from "../format.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
@@ -10,6 +11,7 @@ import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
+const display = (r: Recipient): string => stripCrlf(formatRecipient(r));
 const normalizeConfig = (v: string): string => stripCrlf(v).trim();
 const MAX_PROVIDER_MESSAGE = 16 * 1024;
 const capMessage = (s: string): string =>
@@ -28,7 +30,7 @@ interface SparkPostRecipient {
 
 interface SparkPostBody {
 	content: {
-		from: string;
+		from: { email: string; name?: string };
 		subject: string;
 		html?: string;
 		text?: string;
@@ -90,18 +92,20 @@ export class SparkPostTransport implements MailTransport {
 			...message.to,
 			...message.cc,
 			...message.bcc,
-		].map((addr) => ({ address: parseAddress(addr) }));
+		].map((addr) => ({ address: contactOf(addr) }));
 
 		const body: SparkPostBody = {
 			content: {
-				from: stripCrlf(message.from),
+				from: contactOf(message.from),
 				subject: stripCrlf(message.subject),
 			},
 			recipients,
 		};
 		if (message.html) body.content.html = message.html;
 		if (message.text) body.content.text = message.text;
-		if (message.replyTo) body.content.reply_to = stripCrlf(message.replyTo);
+		if (message.replyTo?.length) {
+			body.content.reply_to = message.replyTo.map(display).join(", ");
+		}
 		const headers: Record<string, string> = {};
 		for (const [k, raw] of Object.entries(message.headers)) {
 			const v = headerValue(raw);
@@ -109,7 +113,7 @@ export class SparkPostTransport implements MailTransport {
 				? v.map(stripCrlf).join(", ")
 				: stripCrlf(v);
 		}
-		if (message.cc.length) headers.CC = message.cc.map(stripCrlf).join(", ");
+		if (message.cc.length) headers.CC = message.cc.map(display).join(", ");
 		if (Object.keys(headers).length > 0) body.content.headers = headers;
 		if (attachmentsFor(message).length > 0) {
 			body.content.attachments = attachmentsFor(message).map((att) => ({
@@ -168,24 +172,6 @@ export class SparkPostTransport implements MailTransport {
 		}
 		return undefined;
 	}
-}
-
-/**
- * Split a possibly-formatted address (`"Name" <addr>` / `Name <addr>` / bare
- * `addr`) into SparkPost's `{ email, name? }` address shape.
- */
-function parseAddress(input: string): { email: string; name?: string } {
-	const s = stripCrlf(input).trim();
-	const match = s.match(/^(.*)<([^>]+)>\s*$/);
-	// Both groups are required by the pattern, so a match carries both —
-	// named rather than indexed, which is what says so.
-	const [, rawName, rawEmail] = match ?? [];
-	if (rawEmail !== undefined) {
-		const email = rawEmail.trim();
-		const name = (rawName ?? "").trim().replace(/^"|"$/g, "").trim();
-		return name ? { email, name } : { email };
-	}
-	return { email: s };
 }
 
 registerTransport("sparkpost", (config) => new SparkPostTransport(config));

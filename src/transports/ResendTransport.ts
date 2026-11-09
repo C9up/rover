@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { formatRecipient, type Recipient } from "../format.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
@@ -10,6 +11,7 @@ import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
+const display = (r: Recipient): string => stripCrlf(formatRecipient(r));
 const normalizeConfig = (v: string): string => stripCrlf(v).trim();
 const MAX_PROVIDER_MESSAGE = 16 * 1024;
 const capMessage = (s: string): string =>
@@ -27,7 +29,7 @@ interface ResendBody {
 	to: string[];
 	cc?: string[];
 	bcc?: string[];
-	reply_to?: string;
+	reply_to?: string[];
 	subject: string;
 	html?: string;
 	text?: string;
@@ -68,13 +70,13 @@ export class ResendTransport implements MailTransport {
 			);
 		}
 		const body: ResendBody = {
-			from: stripCrlf(message.from),
-			to: message.to.map(stripCrlf),
+			from: display(message.from),
+			to: message.to.map(display),
 			subject: stripCrlf(message.subject),
 		};
-		if (message.cc.length) body.cc = message.cc.map(stripCrlf);
-		if (message.bcc.length) body.bcc = message.bcc.map(stripCrlf);
-		if (message.replyTo) body.reply_to = stripCrlf(message.replyTo);
+		if (message.cc.length) body.cc = message.cc.map(display);
+		if (message.bcc.length) body.bcc = message.bcc.map(display);
+		if (message.replyTo?.length) body.reply_to = message.replyTo.map(display);
 		if (message.html) body.html = message.html;
 		if (message.text) body.text = message.text;
 		if (attachmentsFor(message).length > 0) {

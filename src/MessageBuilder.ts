@@ -1,7 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatAddress } from "./format.js";
+import {
+	assertRecipient,
+	formatRecipient,
+	type Recipient,
+	recipientAddress,
+	recipientName,
+	toRecipient,
+} from "./format.js";
 import { RoverError } from "./RoverError.js";
 import { renderFile as renderTemplateFile } from "./templating/SimpleTemplate.js";
 
@@ -33,11 +40,16 @@ export function headerValue(
 }
 
 export interface MailMessage {
-	from: string;
-	to: string[];
-	cc: string[];
-	bcc: string[];
-	replyTo?: string;
+	/**
+	 * Addresses are kept structured, as AdonisJS keeps them: a bare address,
+	 * or `{ address, name }`. Never a pre-formatted `"Name" <addr>` string,
+	 * which the next layer would re-parse as an address list.
+	 */
+	from: Recipient;
+	to: Recipient[];
+	cc: Recipient[];
+	bcc: Recipient[];
+	replyTo?: Recipient[];
 	subject: string;
 	html?: string;
 	text?: string;
@@ -152,34 +164,33 @@ export interface AttachmentOptions {
 }
 
 /**
- * A recipient in object form (Adonis parity). `name` is optional and, when
- * present, produces the `"Name" <address>` display form.
+ * A recipient in object form, as the builder accepts it. `name` is optional
+ * here; an empty or missing name is stored as the bare address.
  */
 export interface RecipientObject {
 	address: string;
 	name?: string;
 }
 
-export type Recipient = string | RecipientObject;
+export type { Recipient };
 
-/** Whether `list` holds `address`, or anything at all when it is omitted. */
+/** What `to([...])` / `cc([...])` / `bcc([...])` accept. */
+export type RecipientInput = string | RecipientObject;
+
+/**
+ * Whether `list` holds `address`, or anything at all when it is omitted. With
+ * a name, both halves must match (AdonisJS `hasRecipient`).
+ */
 function contains(
-	list: readonly string[],
+	list: readonly Recipient[],
 	address?: string,
 	name?: string,
 ): boolean {
 	if (address === undefined) return list.length > 0;
-	// With a name, both halves must match — the entry was stored through
-	// `formatAddress`, so rebuilding it is the exact comparison (AdonisJS
-	// checks address AND name the same way).
-	if (name !== undefined) {
-		const formatted = formatAddress(address, name);
-		return list.some((entry) => entry === formatted);
-	}
-	// Addresses are stored formatted (`"Name" <a@b.c>`), so an assertion on the
-	// bare address has to match inside the display form too.
 	return list.some(
-		(entry) => entry === address || entry.includes(`<${address}>`),
+		(entry) =>
+			recipientAddress(entry) === address &&
+			(name === undefined || recipientName(entry) === name),
 	);
 }
 
@@ -361,11 +372,7 @@ export class MessageBuilder {
 		return contains(this.#msg.from ? [this.#msg.from] : [], address, name);
 	}
 	hasReplyTo(address?: string, name?: string): boolean {
-		return contains(
-			this.#msg.replyTo ? [this.#msg.replyTo] : [],
-			address,
-			name,
-		);
+		return contains(this.#msg.replyTo ?? [], address, name);
 	}
 	hasSubject(subject?: string): boolean {
 		if (subject === undefined) return this.#msg.subject !== "";
@@ -453,22 +460,38 @@ export class MessageBuilder {
 	}
 
 	assertTo(address: string): void {
-		expect(this.hasTo(address), `to include "${address}"`, this.#msg.to);
+		expect(
+			this.hasTo(address),
+			`to include "${address}"`,
+			this.#msg.to.map(formatRecipient),
+		);
 	}
 	assertFrom(address: string): void {
-		expect(this.hasFrom(address), `from to be "${address}"`, this.#msg.from);
+		expect(
+			this.hasFrom(address),
+			`from to be "${address}"`,
+			this.#msg.from ? formatRecipient(this.#msg.from) : "",
+		);
 	}
 	assertCc(address: string): void {
-		expect(this.hasCc(address), `cc to include "${address}"`, this.#msg.cc);
+		expect(
+			this.hasCc(address),
+			`cc to include "${address}"`,
+			this.#msg.cc.map(formatRecipient),
+		);
 	}
 	assertBcc(address: string): void {
-		expect(this.hasBcc(address), `bcc to include "${address}"`, this.#msg.bcc);
+		expect(
+			this.hasBcc(address),
+			`bcc to include "${address}"`,
+			this.#msg.bcc.map(formatRecipient),
+		);
 	}
 	assertReplyTo(address: string): void {
 		expect(
 			this.hasReplyTo(address),
-			`replyTo to be "${address}"`,
-			this.#msg.replyTo,
+			`replyTo to include "${address}"`,
+			(this.#msg.replyTo ?? []).map(formatRecipient),
 		);
 	}
 	assertSubject(subject: string): void {
@@ -493,9 +516,9 @@ export class MessageBuilder {
 	/** `address` is a recipient in some field (AdonisJS `assertRecipient`). */
 	assertRecipient(address: string): void {
 		expect(this.hasAnyRecipient(address), `to reach "${address}"`, {
-			to: this.#msg.to,
-			cc: this.#msg.cc,
-			bcc: this.#msg.bcc,
+			to: this.#msg.to.map(formatRecipient),
+			cc: this.#msg.cc.map(formatRecipient),
+			bcc: this.#msg.bcc.map(formatRecipient),
 		});
 	}
 
@@ -545,33 +568,38 @@ export class MessageBuilder {
 	}
 
 	from(address: string, name?: string): this {
-		this.#msg.from = formatAddress(address, name);
+		this.#msg.from = toRecipient(address, name);
 		return this;
 	}
 
 	to(address: string, name?: string): this;
-	to(addresses: Recipient[]): this;
-	to(address: string | Recipient[], name?: string): this {
+	to(addresses: RecipientInput[]): this;
+	to(address: string | RecipientInput[], name?: string): this {
 		addRecipients(this.#msg.to, address, name);
 		return this;
 	}
 
 	cc(address: string, name?: string): this;
-	cc(addresses: Recipient[]): this;
-	cc(address: string | Recipient[], name?: string): this {
+	cc(addresses: RecipientInput[]): this;
+	cc(address: string | RecipientInput[], name?: string): this {
 		addRecipients(this.#msg.cc, address, name);
 		return this;
 	}
 
 	bcc(address: string, name?: string): this;
-	bcc(addresses: Recipient[]): this;
-	bcc(address: string | Recipient[], name?: string): this {
+	bcc(addresses: RecipientInput[]): this;
+	bcc(address: string | RecipientInput[], name?: string): this {
 		addRecipients(this.#msg.bcc, address, name);
 		return this;
 	}
 
+	/**
+	 * Add a Reply-To address (AdonisJS `replyTo`). Each call adds one, as
+	 * upstream's does: a second call no longer drops the first.
+	 */
 	replyTo(address: string, name?: string): this {
-		this.#msg.replyTo = formatAddress(address, name);
+		this.#msg.replyTo ??= [];
+		this.#msg.replyTo.push(toRecipient(address, name));
 		return this;
 	}
 
@@ -963,25 +991,21 @@ export class MessageBuilder {
 
 /**
  * Append one recipient, an array of recipients, or a `(address, name)` pair to
- * a recipient list, formatting each into the `"Name" <address>` display form
- * when a name is present.
+ * a recipient list. Every form goes through the same validation: a string
+ * entry of an array is checked exactly like `to(string)`.
  */
 function addRecipients(
-	list: string[],
-	address: string | Recipient[],
+	list: Recipient[],
+	address: string | RecipientInput[],
 	name?: string,
 ): void {
 	if (Array.isArray(address)) {
-		for (const entry of address) {
-			list.push(
-				typeof entry === "string"
-					? entry
-					: formatAddress(entry.address, entry.name),
-			);
-		}
+		// Validate the whole array before adding any of it.
+		const entries = address.map((entry) => assertRecipient(entry));
+		list.push(...entries);
 		return;
 	}
-	list.push(formatAddress(address, name));
+	list.push(toRecipient(address, name));
 }
 
 /**

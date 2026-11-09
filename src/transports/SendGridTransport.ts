@@ -1,3 +1,4 @@
+import { contactOf } from "../format.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
@@ -46,12 +47,9 @@ export class SendGridTransport implements MailTransport {
 	async send(message: MailMessage): Promise<MailSendOutcome> {
 		assertHasRecipients(message);
 
-		// CRLF is stripped at the wire boundary regardless of what the provider
-		// promises — a header injected through a recipient or a subject is the
-		// one thing a transport must never pass on.
-		const address = (value: string): { email: string } => ({
-			email: stripCrlf(value),
-		});
+		// v3 wants the bare address in `email` and the display name apart;
+		// `"Name" <addr>` in `email` is a 400.
+		const address = contactOf;
 		const personalization: Record<string, unknown> = {
 			// `to` may be empty when a message is bcc-only, which SendGrid allows.
 			to: message.to.map(address),
@@ -67,7 +65,12 @@ export class SendGridTransport implements MailTransport {
 			subject: stripCrlf(message.subject),
 			content: buildSendGridContent(message),
 		};
-		if (message.replyTo) body.reply_to = address(message.replyTo);
+		const replyTo = message.replyTo ?? [];
+		if (replyTo.length === 1 && replyTo[0] !== undefined) {
+			body.reply_to = address(replyTo[0]);
+		} else if (replyTo.length > 1) {
+			body.reply_to_list = replyTo.map(address);
+		}
 		if (Object.keys(message.headers).length) {
 			body.headers = Object.fromEntries(
 				Object.entries(message.headers).map(([k, raw]) => {

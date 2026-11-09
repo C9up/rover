@@ -1,3 +1,4 @@
+import { formatRecipient, type Recipient } from "../format.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
@@ -9,6 +10,7 @@ import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
+const display = (r: Recipient): string => stripCrlf(formatRecipient(r));
 const normalizeConfig = (v: string): string => stripCrlf(v).trim();
 const MAX_PROVIDER_MESSAGE = 16 * 1024;
 const capMessage = (s: string): string =>
@@ -91,19 +93,21 @@ export class MailgunTransport implements MailTransport {
 		// promises — defence-in-depth. Anti-pattern from spec Dev Notes:
 		// "never skip CRLF sanitisation because the provider will handle it".
 		const data: Record<string, unknown> = {
-			from: stripCrlf(message.from),
+			from: display(message.from),
 			// Mailgun requires a `to`. A bcc-only message is valid (the validator
 			// permits it), but an empty `to` makes create() 400 instead of
 			// delivering to the bcc list. Fall back to the sender so the envelope is
 			// accepted and the bcc recipients still receive it (audit 2026-06-13).
-			to: (message.to.length > 0 ? message.to : [message.from]).map(stripCrlf),
+			to: (message.to.length > 0 ? message.to : [message.from]).map(display),
 			subject: stripCrlf(message.subject),
 		};
-		if (message.cc.length) data.cc = message.cc.map(stripCrlf);
-		if (message.bcc.length) data.bcc = message.bcc.map(stripCrlf);
+		if (message.cc.length) data.cc = message.cc.map(display);
+		if (message.bcc.length) data.bcc = message.bcc.map(display);
 		if (message.text) data.text = message.text;
 		if (message.html) data.html = message.html;
-		if (message.replyTo) data["h:Reply-To"] = stripCrlf(message.replyTo);
+		if (message.replyTo?.length) {
+			data["h:Reply-To"] = message.replyTo.map(display).join(", ");
+		}
 		for (const [k, raw] of Object.entries(message.headers)) {
 			const v = headerValue(raw);
 			data[`h:${stripCrlf(k)}`] = Array.isArray(v)

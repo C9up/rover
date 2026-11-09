@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { contactOf } from "../format.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
@@ -84,16 +85,26 @@ export class BrevoTransport implements MailTransport {
 				{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
 			);
 		}
+		const replyTo = message.replyTo ?? [];
+		if (replyTo.length > 1) {
+			throw new RoverError(
+				"E_MAIL_FIELD_UNSUPPORTED",
+				"Brevo accepts a single Reply-To address",
+				{
+					hint: "Call replyTo() once for this mailer, or send through one that takes several.",
+					context: { provider: "brevo", field: "replyTo" },
+				},
+			);
+		}
 		const body: BrevoBody = {
-			sender: parseContact(message.from),
-			to: (message.to.length > 0 ? message.to : [message.from]).map(
-				parseContact,
-			),
+			sender: contactOf(message.from),
+			to: (message.to.length > 0 ? message.to : [message.from]).map(contactOf),
 			subject: stripCrlf(message.subject),
 		};
-		if (message.cc.length) body.cc = message.cc.map(parseContact);
-		if (message.bcc.length) body.bcc = message.bcc.map(parseContact);
-		if (message.replyTo) body.replyTo = parseContact(message.replyTo);
+		if (message.cc.length) body.cc = message.cc.map(contactOf);
+		if (message.bcc.length) body.bcc = message.bcc.map(contactOf);
+		const [firstReplyTo] = replyTo;
+		if (firstReplyTo !== undefined) body.replyTo = contactOf(firstReplyTo);
 		if (message.html) body.htmlContent = message.html;
 		if (message.text) body.textContent = message.text;
 		const customHeaders = Object.entries(message.headers);
@@ -156,24 +167,6 @@ export class BrevoTransport implements MailTransport {
 		}
 		return undefined;
 	}
-}
-
-/**
- * Split a possibly-formatted address (`"Name" <addr>` / `Name <addr>` / bare
- * `addr`) into Brevo's `{ email, name? }` contact shape.
- */
-function parseContact(input: string): BrevoContact {
-	const s = stripCrlf(input).trim();
-	const match = s.match(/^(.*)<([^>]+)>\s*$/);
-	// Both groups are required by the pattern, so a match carries both —
-	// named rather than indexed, which is what says so.
-	const [, rawName, rawEmail] = match ?? [];
-	if (rawEmail !== undefined) {
-		const email = rawEmail.trim();
-		const name = (rawName ?? "").trim().replace(/^"|"$/g, "").trim();
-		return name ? { email, name } : { email };
-	}
-	return { email: s };
 }
 
 registerTransport("brevo", (config) => new BrevoTransport(config));

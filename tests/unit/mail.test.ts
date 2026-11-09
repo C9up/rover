@@ -75,7 +75,7 @@ describe("rover > Mail", () => {
 		expect(msg.to).toEqual(["c@d.com"]);
 		expect(msg.cc).toEqual(["e@f.com"]);
 		expect(msg.bcc).toEqual(["g@h.com"]);
-		expect(msg.replyTo).toBe("r@s.com");
+		expect(msg.replyTo).toEqual(["r@s.com"]);
 		expect(msg.subject).toBe("Subj");
 		expect(msg.html).toBe("<p>Hi</p>");
 		expect(msg.text).toBe("Hi");

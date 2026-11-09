@@ -41,8 +41,9 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 		const result = await t.send(baseMessage());
 		expect(transporter.sendMail).toHaveBeenCalledOnce();
 		const arg = defined(transporter.sendMail.mock.calls[0])[0];
-		expect(arg.from).toBe("sender@example.com");
-		expect(arg.to).toEqual(["user@example.com"]);
+		// Address objects: nodemailer never splits one into several mailboxes.
+		expect(arg.from).toEqual({ name: "", address: "sender@example.com" });
+		expect(arg.to).toEqual([{ name: "", address: "user@example.com" }]);
 		expect(arg.subject).toBe("Hello");
 		expect(arg.html).toBe("<p>Hi</p>");
 		expect(arg.text).toBe("Hi");
@@ -57,16 +58,16 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 		});
 		const msg = baseMessage();
 		msg.cc = ["cc@x.com"];
-		msg.replyTo = "r@x.com";
+		msg.replyTo = ["r@x.com"];
 		msg.headers = { "X-Campaign": "summer" };
 		msg.attachments = [
 			{ filename: "a.pdf", content: "bytes", contentType: "application/pdf" },
 		];
 		await t.send(msg);
 		const arg = defined(transporter.sendMail.mock.calls[0])[0];
-		expect(arg.cc).toEqual(["cc@x.com"]);
+		expect(arg.cc).toEqual([{ name: "", address: "cc@x.com" }]);
 		expect(arg.bcc).toBeUndefined();
-		expect(arg.replyTo).toBe("r@x.com");
+		expect(arg.replyTo).toEqual([{ name: "", address: "r@x.com" }]);
 		expect(arg.headers).toEqual({ "X-Campaign": "summer" });
 		expect(arg.attachments).toEqual([
 			{

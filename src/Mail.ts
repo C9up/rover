@@ -1,7 +1,14 @@
 import { randomBytes } from "node:crypto";
 import nodemailer, { type Transporter } from "nodemailer";
 import type SMTPTransport from "nodemailer/lib/smtp-transport/index.js";
-import { BaseMail } from "./BaseMail.js";
+import { BaseMail, type MailAddress } from "./BaseMail.js";
+import {
+	assertRecipient,
+	formatRecipient,
+	type Recipient,
+	toNodemailerAddress,
+	toRecipient,
+} from "./format.js";
 import {
 	type MailAttachment,
 	type MailMessage,
@@ -144,7 +151,8 @@ export interface MailConfig {
 	 * key of {@link MailConfig.mailers}, or the constructor throws.
 	 */
 	default: string;
-	from: string;
+	/** Default sender: an address, or `{ address, name }`. */
+	from: MailAddress;
 	/**
 	 * The declared mailers, name → the transport it sends through plus that
 	 * transport's own settings. Build the entries with the `transports.*`
@@ -293,11 +301,17 @@ export class SmtpTransport implements MailTransport {
 		}
 		try {
 			const info = await this.#transporter.sendMail({
-				from: message.from,
-				to: message.to,
-				cc: message.cc.length ? message.cc : undefined,
-				bcc: message.bcc.length ? message.bcc : undefined,
-				replyTo: message.replyTo,
+				// Address objects, which nodemailer never re-splits: a string would
+				// be parsed as an address list.
+				from: toNodemailerAddress(message.from),
+				to: message.to.map(toNodemailerAddress),
+				cc: message.cc.length ? message.cc.map(toNodemailerAddress) : undefined,
+				bcc: message.bcc.length
+					? message.bcc.map(toNodemailerAddress)
+					: undefined,
+				replyTo: message.replyTo?.length
+					? message.replyTo.map(toNodemailerAddress)
+					: undefined,
 				subject: message.subject,
 				html: message.html,
 				text: message.text,
@@ -421,7 +435,7 @@ export class LogTransport implements MailTransport {
 
 	async send(message: MailMessage): Promise<MailSendOutcome> {
 		console.log(
-			`[MAIL] To: ${JSON.stringify(message.to)} | Subject: ${JSON.stringify(message.subject)}`,
+			`[MAIL] To: ${JSON.stringify(message.to.map(formatRecipient))} | Subject: ${JSON.stringify(message.subject)}`,
 		);
 		if (this.#logBody && message.text) {
 			console.log(`  Body: ${JSON.stringify(message.text.slice(0, 200))}`);
@@ -460,7 +474,7 @@ export class Mail {
 	#transports: Map<string, MailTransport> = new Map();
 	#mailers: Map<string, Mailer> = new Map();
 	#defaultTransport: string;
-	#defaultFrom: string;
+	#defaultFrom: MailAddress;
 	/** Active `FakeMail`, when `fake()` mode is on. Manager-level (captures both `send` and `sendLater`), not a transport swap. */
 	#fake: FakeMail | null = null;
 	#queue: BayQueueLike | null = null;
@@ -835,11 +849,20 @@ export class Mail {
 		let views: MessageBodyTemplates;
 		if (arg instanceof BaseMail) {
 			const built = await arg.build(this.#viewsRoot);
-			result = built.from ? built : { ...built, from: this.#defaultFrom };
+			result = built.from
+				? built
+				: { ...built, from: defaultSender(this.#defaultFrom) };
 			views = arg.message.views;
 		} else {
 			const builder = new MessageBuilder();
-			builder.from(this.#defaultFrom);
+			// An unset or blank default is left for validateMailMessage to
+			// report as a missing sender, which is what it is.
+			const from: MailAddress | undefined = this.#defaultFrom;
+			if (typeof from === "string") {
+				if (from.trim() !== "") builder.from(from);
+			} else if (from !== undefined && from !== null) {
+				builder.from(from.address, from.name);
+			}
 			arg(builder);
 			result = await builder.build(this.#viewsRoot);
 			views = builder.views;
@@ -861,9 +884,9 @@ export class Mail {
 			mailerName,
 			message,
 			views,
-			to: message.to.slice(),
-			cc: message.cc.slice(),
-			bcc: message.bcc.slice(),
+			to: message.to.map(formatRecipient),
+			cc: message.cc.map(formatRecipient),
+			bcc: message.bcc.map(formatRecipient),
 			transportName: mailerName,
 			timestamp: Date.now(),
 		};
@@ -986,11 +1009,14 @@ export class Mailer {
  * cryptic) "no recipients" provider error.
  */
 function validateMailMessage(message: MailMessage): void {
-	// `MailMessage.from` is typed `string` but config-loader paths
-	// (`app.config.get<MailConfig>(...)`) cast at runtime — a missing key
-	// can yield `undefined` despite the type. Whitespace-only is also
-	// invalid per RFC 5321 reverse-path semantics.
-	if (typeof message.from !== "string" || message.from.trim() === "") {
+	// `MailMessage.from` is typed, but config-loader paths and queue payloads
+	// reach here untyped — a missing key can yield `undefined` despite the
+	// type.
+	if (
+		message.from === undefined ||
+		message.from === null ||
+		(typeof message.from === "string" && message.from.trim() === "")
+	) {
 		throw new RoverError(
 			"E_MAIL_INVALID_MESSAGE",
 			"Mail message has no `from` address",
@@ -999,16 +1025,27 @@ function validateMailMessage(message: MailMessage): void {
 			},
 		);
 	}
+	// Every address is re-checked here, not only in the builder: a queue
+	// payload or a hand-built message never went through it, and a
+	// `"a@x, b@y"` string would otherwise reach a parser that splits it.
+	assertRecipient(message.from, "from address");
 	// Defense-in-depth on each array: `MailJob.validatePayload` only requires
 	// `to` to be an array (cc/bcc are optional at the queue boundary), so a
 	// deserialised job payload may reach here with `cc`/`bcc` as `undefined`.
-	// `.some(...)` on `undefined` throws `TypeError` instead of the
-	// structured `E_MAIL_INVALID_MESSAGE` this validator is supposed to surface.
-	const hasRecipient =
-		(Array.isArray(message.to) && message.to.some(isNonEmptyAddress)) ||
-		(Array.isArray(message.cc) && message.cc.some(isNonEmptyAddress)) ||
-		(Array.isArray(message.bcc) && message.bcc.some(isNonEmptyAddress));
-	if (!hasRecipient) {
+	let recipients = 0;
+	for (const field of ["to", "cc", "bcc", "replyTo"] as const) {
+		const list: unknown = message[field];
+		if (list === undefined) continue;
+		if (!Array.isArray(list)) {
+			throw new RoverError(
+				"E_MAIL_INVALID_MESSAGE",
+				`Mail message \`${field}\` must be an array`,
+			);
+		}
+		for (const entry of list) assertRecipient(entry, `${field} address`);
+		if (field !== "replyTo") recipients += list.length;
+	}
+	if (recipients === 0) {
 		throw new RoverError(
 			"E_MAIL_INVALID_MESSAGE",
 			"Mail message has no recipients",
@@ -1019,8 +1056,12 @@ function validateMailMessage(message: MailMessage): void {
 	}
 }
 
-function isNonEmptyAddress(addr: unknown): boolean {
-	return typeof addr === "string" && addr.trim() !== "";
+/** The configured default sender in the stored shape. */
+function defaultSender(from: MailAddress | undefined): Recipient {
+	// Left empty for validateMailMessage to report as a missing sender.
+	if (from === undefined || from === null) return "";
+	if (typeof from === "string") return from.trim();
+	return toRecipient(from.address, from.name);
 }
 
 function errorDescriptor(

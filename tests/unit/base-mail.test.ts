@@ -5,6 +5,7 @@ import {
 	type MailMessage,
 	type MailSendOutcome,
 	type MailTransport,
+	type Recipient,
 	registerTransport,
 } from "../../src/index.js";
 import { bypassTypeCheck } from "../__helpers__/bypass-type-check.js";
@@ -126,7 +127,7 @@ describe("rover > BaseMail", () => {
 		expect(defined(spy.sent[0]).subject).toBe("Order shipped");
 	});
 
-	it("applies instance `from` in { address, name } form as RFC 5322", async () => {
+	it("applies instance `from` in { address, name } form, kept structured", async () => {
 		const spy = new SpyTransport();
 		registerTransport("spy-base-mail-3", () => spy);
 		const mail = new Mail({
@@ -136,7 +137,10 @@ describe("rover > BaseMail", () => {
 		});
 
 		await mail.send(new NamedSenderMail());
-		expect(defined(spy.sent[0]).from).toBe('"Acme Orders" <orders@acme.com>');
+		expect(defined(spy.sent[0]).from).toEqual({
+			address: "orders@acme.com",
+			name: "Acme Orders",
+		});
 	});
 
 	it("falls back to config.from when instance `from` is unset", async () => {
@@ -386,7 +390,7 @@ describe("rover > BaseMail", () => {
 		expect(spy.sent).toHaveLength(0);
 	});
 
-	it("rejects recipient arrays that contain only empty strings", async () => {
+	it("rejects empty and whitespace-only recipients", async () => {
 		const spy = new SpyTransport();
 		registerTransport("spy-validate-empty-to", () => spy);
 		const mail = new Mail({
@@ -400,7 +404,7 @@ describe("rover > BaseMail", () => {
 				m.cc("   ");
 				m.subject("nope").text("body");
 			}),
-		).rejects.toThrow(/no recipients/);
+		).rejects.toThrow(/not a single email address/);
 		expect(spy.sent).toHaveLength(0);
 	});
 
@@ -497,7 +501,7 @@ describe("rover > BaseMail builds once (AdonisJS `built` guard)", () => {
 
 	it("survives being sent twice", async () => {
 		const mail = new Welcome();
-		const sent: Array<{ to: string[] }> = [];
+		const sent: Array<{ to: Recipient[] }> = [];
 		const mailer = {
 			async send(m: BaseMail) {
 				sent.push({ to: (await m.build()).to.slice() });
