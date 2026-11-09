@@ -467,6 +467,12 @@ export function registerTransport(
  * Mail manager — send emails via configured transport.
  */
 export class Mail {
+	/** Declared mailers: the factory and the settings each one is built from. */
+	#declared: Map<
+		string,
+		{ factory: MailTransportFactory; config: Record<string, unknown> }
+	> = new Map();
+	/** Transports built so far, on first use (AdonisJS `MailManager.use`). */
 	#transports: Map<string, MailTransport> = new Map();
 	#mailers: Map<string, Mailer> = new Map();
 	#defaultTransport: string;
@@ -527,7 +533,10 @@ export class Mail {
 					},
 				);
 			}
-			this.#transports.set(name, factory(transportConfig));
+			// Built on first use, not here: a declared mailer the app never sends
+			// through (an smtp entry with SMTP_HOST still empty) must not stop
+			// the boot. Its config error surfaces when it is first used.
+			this.#declared.set(name, { factory, config: transportConfig });
 			if (transportConfig.retry) {
 				this.#transportRetry.set(name, transportConfig.retry);
 			}
@@ -537,12 +546,12 @@ export class Mail {
 		// letting it through is that the app boots, looks healthy, and throws on
 		// the first email it tries to send — often a password reset, in
 		// production. Refuse at construction and name what was declared.
-		if (!this.#transports.has(this.#defaultTransport)) {
+		if (!this.#declared.has(this.#defaultTransport)) {
 			throw new RoverError(
 				"E_MAIL_UNKNOWN_MAILER",
 				`Mail default mailer '${this.#defaultTransport}' is not declared in config.mailers`,
 				{
-					hint: `${knownMailers(this.#transports)} Add it, or point \`default\` at one of them.`,
+					hint: `${knownMailers(this.#declared)} Add it, or point \`default\` at one of them.`,
 				},
 			);
 		}
@@ -716,8 +725,7 @@ export class Mail {
 		// failure mode uniform across send() and queue dequeue.
 		validateMailMessage(message);
 		const name = transportName ?? this.#defaultTransport;
-		const t = this.#transports.get(name);
-		if (!t) throw new Error(`Mail transport '${name}' not configured`);
+		const t = this.#requireTransport(name);
 
 		const retry = overrideRetry
 			? resolveRetryConfig(undefined, overrideRetry)
@@ -906,7 +914,10 @@ export class Mail {
 	 * routes through that transport (Adonis parity). Mailers are cached per name.
 	 */
 	use(name: string): Mailer {
-		this.#requireTransport(name);
+		// Building the transport here is what makes a misconfigured mailer
+		// report on first use. A fake captures sends without one.
+		if (this.#fake === null) this.#requireTransport(name);
+		else this.#requireDeclared(name);
 		let mailer = this.#mailers.get(name);
 		if (mailer === undefined) {
 			mailer = new Mailer(this, name);
@@ -922,12 +933,24 @@ export class Mail {
 
 	/** The transport behind `name`, or a RoverError listing the declared ones. */
 	#requireTransport(name: string): MailTransport {
-		const transport = this.#transports.get(name);
-		if (transport) return transport;
+		const cached = this.#transports.get(name);
+		if (cached) return cached;
+		const { factory, config } = this.#requireDeclared(name);
+		const transport = factory(config);
+		this.#transports.set(name, transport);
+		return transport;
+	}
+
+	#requireDeclared(name: string): {
+		factory: MailTransportFactory;
+		config: Record<string, unknown>;
+	} {
+		const declared = this.#declared.get(name);
+		if (declared) return declared;
 		throw new RoverError(
 			"E_MAIL_UNKNOWN_MAILER",
 			`Mail mailer '${name}' is not declared in config.mailers`,
-			{ hint: knownMailers(this.#transports) },
+			{ hint: knownMailers(this.#declared) },
 		);
 	}
 
@@ -941,14 +964,19 @@ export class Mail {
 	 */
 	async close(name?: string): Promise<void> {
 		const transportName = name ?? this.#defaultTransport;
-		await this.#transports.get(transportName)?.close?.();
+		const transport = this.#transports.get(transportName);
+		// Dropped from the cache, as upstream does: the next use builds a
+		// fresh transport instead of reusing a closed pool.
+		this.#transports.delete(transportName);
+		await transport?.close?.();
 	}
 
-	/** Close every built transport (Adonis `closeAll`). What a shutdown hook calls. */
+	/**
+	 * Close every transport built so far (Adonis `closeAll`). What a shutdown
+	 * hook calls; a mailer never used has nothing open and is not built.
+	 */
 	async closeAll(): Promise<void> {
-		await Promise.all(
-			[...this.#transports.values()].map((transport) => transport.close?.()),
-		);
+		await Promise.all([...this.#transports.keys()].map((n) => this.close(n)));
 	}
 
 	/**
@@ -1115,8 +1143,8 @@ function errorDescriptor(
 }
 
 /** "Declared mailers: a, b." — the half of an unknown-mailer error that helps. */
-function knownMailers(transports: Map<string, MailTransport>): string {
-	const names = [...transports.keys()];
+function knownMailers(declared: Map<string, unknown>): string {
+	const names = [...declared.keys()];
 	return names.length > 0
 		? `Declared mailers: ${names.join(", ")}.`
 		: "No mailers are declared — add at least one to config.mailers.";

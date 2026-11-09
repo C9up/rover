@@ -125,6 +125,8 @@ describe("rover > close", () => {
 			from: "noreply@acme.test",
 			mailers: { closable: { transport: "closable" } },
 		});
+		// Built on first use, so use it before there is anything to close.
+		mail.use("closable");
 		await mail.closeAll();
 		expect(close).toHaveBeenCalled();
 	});
