@@ -6,6 +6,7 @@ import {
 	assertRecipient,
 	formatRecipient,
 	type Recipient,
+	recipientAddress,
 	toNodemailerAddress,
 	toRecipient,
 } from "./format.js";
@@ -55,6 +56,33 @@ export { MessageBuilder };
 export interface MailSendResult {
 	/** Provider-returned message id (Mailgun `mg-abc`, SendGrid `X-Message-Id`, etc.). */
 	providerId?: string;
+	/** The envelope actually used, when the transport knows it (SMTP). */
+	envelope?: MailResponseEnvelope;
+	/** The transport's raw result, surfaced as `MailResponse.original`. */
+	original?: unknown;
+}
+
+/** Who the servers were told the message is from and to (MAIL FROM / RCPT TO). */
+export interface MailResponseEnvelope {
+	from: string | false;
+	to: string[];
+}
+
+/**
+ * What `send()` / `sendCompiled()` resolve to (AdonisJS `MailResponse`): the
+ * message id to correlate with provider webhooks, the envelope, and the
+ * transport's raw result.
+ */
+export class MailResponse<T = unknown> {
+	messageId: string;
+	envelope: MailResponseEnvelope;
+	original: T;
+
+	constructor(messageId: string, envelope: MailResponseEnvelope, original: T) {
+		this.messageId = messageId;
+		this.envelope = envelope;
+		this.original = original;
+	}
 }
 
 /**
@@ -122,6 +150,8 @@ export interface MailSendingEvent extends MailEventBase {}
 
 export interface MailSentEvent extends MailEventBase {
 	messageId: string;
+	/** What `send()` resolved to (AdonisJS `response`). */
+	response: MailResponse;
 }
 
 /**
@@ -343,8 +373,11 @@ export class SmtpTransport implements MailTransport {
 						}))
 					: undefined,
 			});
-			if (info.messageId) return { providerId: info.messageId };
-			return undefined;
+			return {
+				providerId: info.messageId || undefined,
+				envelope: isEnvelope(info.envelope) ? info.envelope : undefined,
+				original: info,
+			};
 		} catch (err) {
 			throw wrapSmtpError(err);
 		}
@@ -561,8 +594,11 @@ export class Mail {
 	 * elsewhere, so there is nothing left to render. An alias of
 	 * {@link dispatchMessage}, which is the name ream used first.
 	 */
-	async sendCompiled(message: MailMessage, transport?: string): Promise<void> {
-		await this.dispatchMessage(message, transport);
+	async sendCompiled(
+		message: MailMessage,
+		transport?: string,
+	): Promise<MailResponse> {
+		return this.dispatchMessage(message, transport);
 	}
 
 	/**
@@ -601,13 +637,13 @@ export class Mail {
 	async send(
 		callback: (message: MessageBuilder) => void,
 		transport?: string,
-	): Promise<void>;
+	): Promise<MailResponse>;
 	/** Send an email using a class-based `BaseMail` instance. */
-	async send(instance: BaseMail, transport?: string): Promise<void>;
+	async send(instance: BaseMail, transport?: string): Promise<MailResponse>;
 	async send(
 		arg: ((message: MessageBuilder) => void) | BaseMail,
 		transport?: string,
-	): Promise<void> {
+	): Promise<MailResponse> {
 		const transportName = transport ?? this.#defaultTransport;
 		// Fake mode is manager-level: capture the built message (and the source
 		// BaseMail, for constructor-based assertions) instead of touching a
@@ -616,16 +652,21 @@ export class Mail {
 			const { message, views } = await this.#buildMessageWithViews(arg);
 			this.#fake.trackSent(message, arg instanceof BaseMail ? arg : undefined);
 			const base = this.#eventBase(message, views, transportName);
+			const response = new MailResponse(
+				randomBytes(16).toString("hex"),
+				envelopeOf(message),
+				undefined,
+			);
 			this.#fireSending(base);
-			this.#fireSent({ ...base, messageId: randomBytes(16).toString("hex") });
-			return;
+			this.#fireSent({ ...base, messageId: response.messageId, response });
+			return response;
 		}
 		// Validate the mailer up-front, before running any callback / prepare()
 		// side effects.
 		this.#requireTransport(transportName);
 
 		const { message, views } = await this.#buildMessageWithViews(arg);
-		await this.dispatchMessage(message, transportName, undefined, views);
+		return this.dispatchMessage(message, transportName, undefined, views);
 	}
 
 	/**
@@ -702,7 +743,7 @@ export class Mail {
 		// were serialised, the templates that produced them were not. Empty is
 		// the honest answer there rather than a guess.
 		views: MessageBodyTemplates = {},
-	): Promise<void> {
+	): Promise<MailResponse> {
 		// Defense-in-depth: queue payloads bypass `#buildMessage`, so a
 		// malformed message deserialised from storage would otherwise reach
 		// the transport with the cryptic provider error A2 was meant to
@@ -746,22 +787,25 @@ export class Mail {
 			}
 			// Success path lives outside the try/catch so a throw inside the
 			// success hook cannot be mistaken for a transport failure.
-			const providerIdRaw =
-				sendResult &&
-				typeof sendResult === "object" &&
-				"providerId" in sendResult
-					? (sendResult.providerId as string | undefined)
-					: undefined;
-			// `??` would accept empty-string providerId; explicit truthy check
-			// so a provider returning `{ providerId: "" }` falls back to the
+			const providerIdRaw = sendResult?.providerId;
+			// `??` would accept empty-string providerId; explicit check so a
+			// provider returning `{ providerId: "" }` falls back to the
 			// internally generated correlation id.
 			const providerId =
-				providerIdRaw && providerIdRaw.length > 0 ? providerIdRaw : undefined;
+				typeof providerIdRaw === "string" && providerIdRaw.length > 0
+					? providerIdRaw
+					: undefined;
+			const response = new MailResponse(
+				providerId ?? generatedId,
+				sendResult?.envelope ?? envelopeOf(message),
+				sendResult?.original ?? sendResult,
+			);
 			this.#fireSent({
 				...this.#eventBase(message, views, name),
-				messageId: providerId ?? generatedId,
+				messageId: response.messageId,
+				response,
 			});
-			return;
+			return response;
 		}
 		// Unreachable — the loop always returns or throws — but TS wants a throw.
 		throw lastError;
@@ -987,7 +1031,9 @@ export class Mailer {
 		return this.#mail.transportFor(this.#name);
 	}
 
-	send(arg: ((message: MessageBuilder) => void) | BaseMail): Promise<void> {
+	send(
+		arg: ((message: MessageBuilder) => void) | BaseMail,
+	): Promise<MailResponse> {
 		// Narrow so the overloaded `Mail.send` resolves without a union cast.
 		return arg instanceof BaseMail
 			? this.#mail.send(arg, this.#name)
@@ -1054,6 +1100,37 @@ function validateMailMessage(message: MailMessage): void {
 			},
 		);
 	}
+}
+
+/**
+ * The envelope a message will be sent with: its explicit `envelope()` when
+ * set, otherwise the sender and every recipient, as nodemailer derives it.
+ */
+function envelopeOf(message: MailMessage): MailResponseEnvelope {
+	const explicit = message.envelope;
+	const list = (value: string | string[] | undefined): string[] =>
+		value === undefined ? [] : Array.isArray(value) ? value : [value];
+	if (explicit !== undefined) {
+		return {
+			from: explicit.from ?? recipientAddress(message.from),
+			to: [...list(explicit.to), ...list(explicit.cc), ...list(explicit.bcc)],
+		};
+	}
+	return {
+		from: recipientAddress(message.from),
+		to: [...message.to, ...message.cc, ...message.bcc].map(recipientAddress),
+	};
+}
+
+function isEnvelope(value: unknown): value is MailResponseEnvelope {
+	if (typeof value !== "object" || value === null) return false;
+	const from: unknown = Reflect.get(value, "from");
+	const to: unknown = Reflect.get(value, "to");
+	return (
+		(typeof from === "string" || from === false) &&
+		Array.isArray(to) &&
+		to.every((entry) => typeof entry === "string")
+	);
 }
 
 /** The configured default sender in the stored shape. */

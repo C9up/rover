@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	Mail,
 	type MailMessage,
+	MailResponse,
 	type MailSendOutcome,
 	type MailTransport,
 	registerTransport,
@@ -115,7 +116,7 @@ describe("rover > retry", () => {
 
 		await expect(
 			mail.send((m) => m.to("u@x.com").subject("S")),
-		).resolves.toBeUndefined();
+		).resolves.toBeInstanceOf(MailResponse);
 		expect(transport.calls).toBe(3);
 	});
 
@@ -246,7 +247,7 @@ describe("rover > retry", () => {
 
 		await expect(
 			mail.send((m) => m.to("u@x.com").subject("S")),
-		).resolves.toBeUndefined();
+		).resolves.toBeInstanceOf(MailResponse);
 		expect(onSent).toHaveBeenCalledOnce();
 		expect(onFailed).not.toHaveBeenCalled();
 	});

@@ -47,7 +47,7 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 		expect(arg.subject).toBe("Hello");
 		expect(arg.html).toBe("<p>Hi</p>");
 		expect(arg.text).toBe("Hi");
-		expect(result).toEqual({ providerId: "<xyz@smtp>" });
+		expect(result?.providerId).toBe("<xyz@smtp>");
 	});
 
 	it("forwards replyTo, cc, bcc, headers and attachments only when present", async () => {

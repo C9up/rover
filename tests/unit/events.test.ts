@@ -6,6 +6,7 @@ import {
 	type EmitterLike,
 	Mail,
 	type MailMessage,
+	MailResponse,
 	type MailSendOutcome,
 	type MailSendResult,
 	type MailTransport,
@@ -194,7 +195,7 @@ describe("rover > delivery events", () => {
 		const mail = makeMail("tail-evt-5", new PassTransport());
 		await expect(
 			mail.send((m) => m.to("u@x.com").subject("Hi")),
-		).resolves.toBeUndefined();
+		).resolves.toBeInstanceOf(MailResponse);
 	});
 
 	it("swallows errors thrown by the emitter (event bus failure ≠ send failure)", async () => {
@@ -207,7 +208,7 @@ describe("rover > delivery events", () => {
 
 		await expect(
 			mail.send((m) => m.to("u@x.com").subject("Hi")),
-		).resolves.toBeUndefined();
+		).resolves.toBeInstanceOf(MailResponse);
 	});
 });
 
