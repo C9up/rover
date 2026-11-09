@@ -6,8 +6,6 @@ import {
 	assertRecipient,
 	formatRecipient,
 	type Recipient,
-	recipientAddress,
-	toNodemailerAddress,
 	toRecipient,
 } from "./format.js";
 import {
@@ -19,6 +17,11 @@ import {
 	MessageBuilder,
 	withCanonicalLineEndings,
 } from "./MessageBuilder.js";
+import {
+	envelopeOf,
+	type MailResponseEnvelope,
+	nodemailerOptions,
+} from "./mime.js";
 import {
 	type BayQueueLike,
 	MAIL_JOB_NAME,
@@ -39,7 +42,7 @@ import { FakeMail } from "./testing/FakeMail.js";
 // so `BaseMail` can import the builder without importing this module — breaking
 // the BaseMail ↔ Mail value cycle. Re-exported here to keep the public surface
 // (`@c9up/rover` → these symbols come from `./Mail.js`) unchanged.
-export type { MailAttachment, MailMessage };
+export type { MailAttachment, MailMessage, MailResponseEnvelope };
 export { MessageBuilder };
 
 /**
@@ -63,12 +66,6 @@ export interface MailSendResult {
 	envelope?: MailResponseEnvelope;
 	/** The transport's raw result, surfaced as `MailResponse.original`. */
 	original?: unknown;
-}
-
-/** Who the servers were told the message is from and to (MAIL FROM / RCPT TO). */
-export interface MailResponseEnvelope {
-	from: string | false;
-	to: string[];
 }
 
 /**
@@ -334,51 +331,7 @@ export class SmtpTransport implements MailTransport {
 			);
 		}
 		try {
-			const info = await this.#transporter.sendMail({
-				// Address objects, which nodemailer never re-splits: a string would
-				// be parsed as an address list.
-				from: toNodemailerAddress(message.from),
-				to: message.to.map(toNodemailerAddress),
-				cc: message.cc.length ? message.cc.map(toNodemailerAddress) : undefined,
-				bcc: message.bcc.length
-					? message.bcc.map(toNodemailerAddress)
-					: undefined,
-				replyTo: message.replyTo?.length
-					? message.replyTo.map(toNodemailerAddress)
-					: undefined,
-				subject: message.subject,
-				html: message.html,
-				text: message.text,
-				// nodemailer reads `watchHtml`; there is no bare `watch` field in
-				// its mail composer, so writing one — as AdonisJS does — never
-				// reaches the wire.
-				watchHtml: message.watchHtml,
-				// MAIL FROM / RCPT TO, when they differ from the headers.
-				envelope: message.envelope ? { ...message.envelope } : undefined,
-				priority: message.priority,
-				messageId: message.messageId,
-				inReplyTo: message.inReplyTo,
-				references: message.references,
-				headers: Object.keys(message.headers).length
-					? message.headers
-					: undefined,
-				encoding: message.encoding,
-				// nodemailer renders `List-*` itself: brackets the URLs, escapes
-				// and encodes the comments, folds the line.
-				list: message.list,
-				icalEvent: message.icalEvent,
-				attachments: message.attachments.length
-					? message.attachments.map((att) => ({
-							filename: att.filename,
-							content: att.content,
-							contentType: att.contentType,
-							cid: att.cid,
-							contentDisposition: att.contentDisposition,
-							encoding: att.encoding,
-							headers: att.headers,
-						}))
-					: undefined,
-			});
+			const info = await this.#transporter.sendMail(nodemailerOptions(message));
 			return {
 				providerId: info.messageId || undefined,
 				envelope: isEnvelope(info.envelope) ? info.envelope : undefined,
@@ -1108,26 +1061,6 @@ function validateMailMessage(message: MailMessage): void {
 			},
 		);
 	}
-}
-
-/**
- * The envelope a message will be sent with: its explicit `envelope()` when
- * set, otherwise the sender and every recipient, as nodemailer derives it.
- */
-function envelopeOf(message: MailMessage): MailResponseEnvelope {
-	const explicit = message.envelope;
-	const list = (value: string | string[] | undefined): string[] =>
-		value === undefined ? [] : Array.isArray(value) ? value : [value];
-	if (explicit !== undefined) {
-		return {
-			from: explicit.from ?? recipientAddress(message.from),
-			to: [...list(explicit.to), ...list(explicit.cc), ...list(explicit.bcc)],
-		};
-	}
-	return {
-		from: recipientAddress(message.from),
-		to: [...message.to, ...message.cc, ...message.bcc].map(recipientAddress),
-	};
 }
 
 function isEnvelope(value: unknown): value is MailResponseEnvelope {

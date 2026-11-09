@@ -46,6 +46,35 @@ describe("rover > envelope() decides MAIL FROM / RCPT TO", () => {
 		expect(server.sessions[0]?.data[0]).toMatch(/^To: bob@example.com/m);
 	});
 
+	it("a bounce address alone still delivers to the header recipients", async () => {
+		server = await startFakeSmtp();
+		const mail = new Mail({
+			default: "smtp",
+			from: "app@example.com",
+			mailers: {
+				smtp: {
+					transport: "smtp",
+					host: "127.0.0.1",
+					port: server.port,
+					retry: { maxAttempts: 1 },
+				},
+			},
+		});
+		await mail.send((m) =>
+			m
+				.to("bob@example.com")
+				.bcc("hidden@example.com")
+				.envelope({ from: "bounces+bob@example.com" })
+				.subject("s")
+				.text("x"),
+		);
+		expect(server.commands().filter((c) => /^(MAIL|RCPT) /i.test(c))).toEqual([
+			"MAIL FROM:<bounces+bob@example.com>",
+			"RCPT TO:<bob@example.com>",
+			"RCPT TO:<hidden@example.com>",
+		]);
+	});
+
 	it.each([
 		["a list in from", { from: "a@example.com, evil@attacker.test" }],
 		["a list in to", { to: "a@example.com, evil@attacker.test" }],
