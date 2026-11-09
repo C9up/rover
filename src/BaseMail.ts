@@ -81,11 +81,17 @@ export abstract class BaseMail {
 	 * `buildWithContents`), so the contents can be inspected before sending —
 	 * which is what an assertion on the rendered html needs.
 	 */
-	async buildWithContents(viewsRoot?: string): Promise<MailMessage> {
-		return this.build(viewsRoot);
+	async buildWithContents(
+		viewsRoot?: string,
+		globals?: Record<string, unknown>,
+	): Promise<MailMessage> {
+		return this.build(viewsRoot, globals);
 	}
 
-	async build(viewsRoot?: string): Promise<MailMessage> {
+	async build(
+		viewsRoot?: string,
+		globals?: Record<string, unknown>,
+	): Promise<MailMessage> {
 		if (this.built && this.#builtMessage !== undefined) {
 			return this.#builtMessage;
 		}
@@ -106,7 +112,7 @@ export abstract class BaseMail {
 		await this.prepare();
 		// Forward the owning Mail's per-instance viewsRoot so template
 		// resolution doesn't depend on the process-wide mutable global.
-		this.#builtMessage = await this.message.build(viewsRoot);
+		this.#builtMessage = await this.message.build(viewsRoot, globals);
 		return this.#builtMessage;
 	}
 }

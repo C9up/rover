@@ -200,6 +200,11 @@ export interface MailConfig {
 		string,
 		{ transport: string; retry?: Partial<RetryConfig>; [key: string]: unknown }
 	>;
+	/**
+	 * Shared with every template the registered engine renders (AdonisJS
+	 * `globals`): a brand name, a base URL for links.
+	 */
+	globals?: Record<string, unknown>;
 	/** Root directory for `htmlView(path, data)` template lookups. Default: `"resources/views/emails"`. */
 	viewsRoot?: string;
 	/** Optional Bay queue tuning for `sendLater()`. */
@@ -480,6 +485,7 @@ export class Mail {
 	#emitter: EmitterLike | null;
 	/** Per-instance template root, threaded into each render so concurrent Mails with different roots don't clobber the shared global. */
 	#viewsRoot: string | undefined;
+	#globals: Record<string, unknown>;
 
 	constructor(
 		config: MailConfig,
@@ -500,6 +506,7 @@ export class Mail {
 		this.#emitter = options?.emitter ?? null;
 		this.#memoryMessenger = new MemoryMailMessenger(this, this.#emitter);
 		this.#viewsRoot = config.viewsRoot;
+		this.#globals = config.globals ?? {};
 		// Keep mutating the process-wide global too: standalone MessageBuilder
 		// usage (not routed through this Mail) still reads it. The per-instance
 		// #viewsRoot threaded into #buildMessage is what isolates Mail.send().
@@ -851,7 +858,7 @@ export class Mail {
 		let result: MailMessage;
 		let views: MessageBodyTemplates;
 		if (arg instanceof BaseMail) {
-			const built = await arg.build(this.#viewsRoot);
+			const built = await arg.build(this.#viewsRoot, this.#globals);
 			result = built.from
 				? built
 				: { ...built, from: defaultSender(this.#defaultFrom) };
@@ -867,7 +874,7 @@ export class Mail {
 				builder.from(from.address, from.name);
 			}
 			arg(builder);
-			result = await builder.build(this.#viewsRoot);
+			result = await builder.build(this.#viewsRoot, this.#globals);
 			views = builder.views;
 		}
 		validateMailMessage(result);

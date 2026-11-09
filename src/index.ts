@@ -45,12 +45,14 @@ export type {
 	CalendarEvent,
 	CalendarEventMethod,
 	CalendarEventOptions,
+	EmbedImageOptions,
 	ListHeader,
 	MailEnvelope,
 	PreparedHeader,
 	Recipient,
 	RecipientInput,
 	RecipientObject,
+	TemplateEngine,
 } from "./MessageBuilder.js";
 export {
 	attachmentsFor,

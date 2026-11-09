@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -567,7 +568,31 @@ export interface MessageBodyTemplates {
 	watch?: { template: string; data: Record<string, unknown> };
 }
 
+/**
+ * Renders a view for `htmlView()` / `textView()` / `watchView()` (AdonisJS
+ * `TemplateEngineContract`). `sharedState` holds the mailer's `globals` and,
+ * for the html and watch bodies, the `embedImage` / `embedImageData` helpers.
+ */
+export interface TemplateEngine {
+	render(
+		templatePath: string,
+		sharedState: Record<string, unknown>,
+		data: Record<string, unknown>,
+	): string | Promise<string>;
+}
+
+/** Options an embedded image takes besides its source. */
+export type EmbedImageOptions = Omit<AttachmentOptions, "contentDisposition">;
+
 export class MessageBuilder {
+	/**
+	 * The engine views render through (AdonisJS `Message.templateEngine`). An
+	 * integration registers its own — an app's view engine — and messages then
+	 * render with it. Unset, rover's built-in `{{ }}` engine renders `.html`
+	 * files under `viewsRoot`.
+	 */
+	static templateEngine: TemplateEngine | undefined;
+
 	#msg: MailMessage = {
 		from: "",
 		to: [],
@@ -1209,7 +1234,44 @@ export class MessageBuilder {
 	 * the process-wide mutable global — so two `Mail`s with different roots no
 	 * longer clobber each other.
 	 */
-	async build(viewsRoot?: string): Promise<MailMessage> {
+	/**
+	 * Render one view through the registered engine, or the built-in one.
+	 * `withImages` hands the html and watch templates the helpers that embed
+	 * an image and return its `cid:` URL.
+	 */
+	async #render(
+		view: { path: string; data: Record<string, unknown> },
+		viewsRoot: string | undefined,
+		globals: Record<string, unknown>,
+		withImages: boolean,
+	): Promise<string> {
+		const engine = MessageBuilder.templateEngine;
+		if (engine === undefined) {
+			return renderTemplateFile(view.path, view.data, undefined, viewsRoot);
+		}
+		const shared: Record<string, unknown> = { ...globals };
+		if (withImages) {
+			shared.embedImage = (filePath: string, options?: EmbedImageOptions) => {
+				const cid = randomUUID();
+				this.embed(filePath, cid, options);
+				return `cid:${cid}`;
+			};
+			shared.embedImageData = (
+				content: Buffer | string,
+				options?: EmbedImageOptions,
+			) => {
+				const cid = randomUUID();
+				this.embedData(content, cid, options);
+				return `cid:${cid}`;
+			};
+		}
+		return engine.render(view.path, shared, view.data);
+	}
+
+	async build(
+		viewsRoot?: string,
+		globals: Record<string, unknown> = {},
+	): Promise<MailMessage> {
 		if (this.#pendingCalendar !== null) {
 			this.#msg.icalEvent = {
 				...this.#pendingCalendar.options,
@@ -1222,11 +1284,11 @@ export class MessageBuilder {
 				template: this.#pendingView.path,
 				data: this.#pendingView.data,
 			};
-			this.#msg.html = await renderTemplateFile(
-				this.#pendingView.path,
-				this.#pendingView.data,
-				undefined,
+			this.#msg.html = await this.#render(
+				this.#pendingView,
 				viewsRoot,
+				globals,
+				true,
 			);
 			this.#pendingView = null;
 		}
@@ -1235,11 +1297,11 @@ export class MessageBuilder {
 				template: this.#pendingWatchView.path,
 				data: this.#pendingWatchView.data,
 			};
-			this.#msg.watchHtml = await renderTemplateFile(
-				this.#pendingWatchView.path,
-				this.#pendingWatchView.data,
-				undefined,
+			this.#msg.watchHtml = await this.#render(
+				this.#pendingWatchView,
 				viewsRoot,
+				globals,
+				true,
 			);
 			this.#pendingWatchView = null;
 		}
@@ -1248,11 +1310,11 @@ export class MessageBuilder {
 				template: this.#pendingTextView.path,
 				data: this.#pendingTextView.data,
 			};
-			this.#msg.text = await renderTemplateFile(
-				this.#pendingTextView.path,
-				this.#pendingTextView.data,
-				undefined,
+			this.#msg.text = await this.#render(
+				this.#pendingTextView,
 				viewsRoot,
+				globals,
+				false,
 			);
 			this.#pendingTextView = null;
 		}
