@@ -167,3 +167,38 @@ export function assertHeaderSafe(value: string, what: string): void {
 		},
 	);
 }
+
+/** RFC 5322 §3.6.8 field name: printable US-ASCII except `:`, no space. */
+const HEADER_NAME = /^[!-9;-~]+$/;
+
+/**
+ * Throw unless `name` is a valid header field name. A space, a tab, a colon
+ * or a line break would let the name write a different header, or a second
+ * one.
+ */
+export function assertHeaderName(name: unknown): string {
+	if (typeof name === "string" && HEADER_NAME.test(name)) return name;
+	throw new RoverError(
+		"E_MAIL_HEADER_INJECTION",
+		`${JSON.stringify(name)} is not a valid header name.`,
+		{
+			hint: "A header name is printable ASCII without spaces or a colon (RFC 5322 §3.6.8).",
+		},
+	);
+}
+
+/**
+ * Throw unless a header value holds no CR, LF or NUL. Also applies to
+ * prepared values: "do not re-encode" is not "do not validate", and a
+ * prepared value is written to the wire as is.
+ */
+export function assertHeaderValue(value: unknown, name: string): string {
+	if (typeof value !== "string") {
+		throw new RoverError(
+			"E_MAIL_INVALID_MESSAGE",
+			`The value of header ${JSON.stringify(name)} must be a string.`,
+		);
+	}
+	assertHeaderSafe(value, `value of header ${JSON.stringify(name)}`);
+	return value;
+}

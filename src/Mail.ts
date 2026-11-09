@@ -12,6 +12,7 @@ import {
 } from "./format.js";
 import {
 	assertEnvelope,
+	assertHeaders,
 	type MailAttachment,
 	type MailMessage,
 	type MessageBodyTemplates,
@@ -1095,6 +1096,7 @@ function validateMailMessage(message: MailMessage): void {
 		if (field !== "replyTo") recipients += list.length;
 	}
 	if (message.envelope !== undefined) assertEnvelope(message.envelope);
+	assertHeaders(message.headers);
 	if (recipients === 0) {
 		throw new RoverError(
 			"E_MAIL_INVALID_MESSAGE",

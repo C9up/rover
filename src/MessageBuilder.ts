@@ -3,6 +3,8 @@ import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	assertAddress,
+	assertHeaderName,
+	assertHeaderValue,
 	assertRecipient,
 	formatRecipient,
 	type Recipient,
@@ -235,6 +237,29 @@ export function attachmentsFor(message: MailMessage): MailAttachment[] {
  * strings as address lists, so `"a@x, b@y"` would add an RCPT TO nobody
  * asked for.
  */
+/**
+ * Check every header of a message that may not have come through the builder
+ * (a queue payload, a hand-built message).
+ */
+export function assertHeaders(headers: unknown): void {
+	if (typeof headers !== "object" || headers === null) {
+		throw new RoverError(
+			"E_MAIL_INVALID_MESSAGE",
+			"Mail message `headers` must be an object",
+		);
+	}
+	for (const [name, value] of Object.entries(headers)) {
+		assertHeaderName(name);
+		if (Array.isArray(value)) {
+			for (const entry of value) assertHeaderValue(entry, name);
+		} else if (typeof value === "object" && value !== null) {
+			assertHeaderValue(Reflect.get(value, "value"), name);
+		} else {
+			assertHeaderValue(value, name);
+		}
+	}
+}
+
 export function assertEnvelope(envelope: unknown): MailEnvelope {
 	if (typeof envelope !== "object" || envelope === null) {
 		throw new RoverError(
@@ -795,7 +820,13 @@ export class MessageBuilder {
 	}
 
 	header(key: string, value: string | string[]): this {
-		this.#msg.headers[key] = value;
+		assertHeaderName(key);
+		if (Array.isArray(value)) {
+			for (const entry of value) assertHeaderValue(entry, key);
+			this.#msg.headers[key] = value.slice();
+		} else {
+			this.#msg.headers[key] = assertHeaderValue(value, key);
+		}
 		return this;
 	}
 
@@ -806,7 +837,11 @@ export class MessageBuilder {
 	 * would corrupt it — a signature, an already-encoded message id.
 	 */
 	preparedHeader(key: string, value: string): this {
-		this.#msg.headers[key] = { prepared: true, value };
+		assertHeaderName(key);
+		this.#msg.headers[key] = {
+			prepared: true,
+			value: assertHeaderValue(value, key),
+		};
 		return this;
 	}
 
@@ -831,6 +866,7 @@ export class MessageBuilder {
 		key: string,
 		value: ListHeader | ListHeader[] | ListHeader[][],
 	): this {
+		assertHeaderName(`List-${key}`);
 		this.#msg.list ??= {};
 		this.#msg.list[key] = value;
 		return this;
