@@ -38,11 +38,14 @@ router.post(
     signingKey: process.env.MAILGUN_SIGNING_KEY!,
     emitter,
     // maxAgeSeconds: 300 (default) — rejects replayed-old signatures
+    // tokenStore: a shared store when several instances receive webhooks
   }),
 )
 ```
 
 The handler verifies the HMAC over `timestamp + token`, enforces a ±5 minute replay window, and emits `mail.delivered` / `mail.bounced` / `mail.failed` on the bus. Invalid / stale / missing signatures return `401` without leaking internals.
+
+Mailgun's signature does not cover the event data, so each token is accepted once: a captured signature reused with another body gets `401 replayed_signature`. The default `MemoryWebhookTokenStore` lives in the process; behind several instances, pass a shared `tokenStore` whose `claim(token, ttlSeconds)` is atomic (Redis `SET token 1 NX EX ttl`).
 
 SendGrid (Ed25519 via `x-twilio-email-event-webhook-signature`) and Resend (Svix HMAC via `svix-signature`) use the same API shape:
 

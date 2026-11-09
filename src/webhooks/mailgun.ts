@@ -16,6 +16,56 @@ export interface MailgunWebhookOptions {
 	 * Set to `Number.POSITIVE_INFINITY` to disable (not recommended).
 	 */
 	maxAgeSeconds?: number;
+	/**
+	 * Where used signature tokens are remembered. Mailgun's HMAC covers the
+	 * timestamp and token, NOT the event data, so a captured signature block
+	 * would authenticate any body for the whole window; refusing a token seen
+	 * before is what ties one signature to one delivery. The default lives in
+	 * this process: behind several instances, pass a shared store (Redis
+	 * `SET token 1 NX EX ttl`).
+	 */
+	tokenStore?: WebhookTokenStore;
+}
+
+/** Remembers webhook signature tokens so each one is accepted only once. */
+export interface WebhookTokenStore {
+	/**
+	 * Record `token` for `ttlSeconds`. Resolve `false` when it was already
+	 * recorded, i.e. the request is a replay. Must be atomic: two concurrent
+	 * deliveries of the same token must not both get `true`.
+	 */
+	claim(token: string, ttlSeconds: number): boolean | Promise<boolean>;
+}
+
+/**
+ * In-process {@link WebhookTokenStore}. Bounded: past `maxEntries` the oldest
+ * token is forgotten. Only tokens whose signature verified reach it, so its
+ * growth follows genuine Mailgun deliveries, not attacker input.
+ */
+export class MemoryWebhookTokenStore implements WebhookTokenStore {
+	readonly #expiries = new Map<string, number>();
+	readonly #maxEntries: number;
+
+	constructor(options: { maxEntries?: number } = {}) {
+		this.#maxEntries = options.maxEntries ?? 10_000;
+	}
+
+	get size(): number {
+		return this.#expiries.size;
+	}
+
+	claim(token: string, ttlSeconds: number): boolean {
+		const now = Date.now();
+		const expiry = this.#expiries.get(token);
+		if (expiry !== undefined && expiry > now) return false;
+		this.#expiries.delete(token);
+		for (const [key, until] of this.#expiries) {
+			if (until > now && this.#expiries.size < this.#maxEntries) break;
+			this.#expiries.delete(key);
+		}
+		this.#expiries.set(token, now + ttlSeconds * 1000);
+		return true;
+	}
 }
 
 interface MailgunPayload {
@@ -48,6 +98,12 @@ export function createMailgunWebhookHandler(
 	const signingKey = options.signingKey;
 	const emitter = options.emitter;
 	const maxAgeSeconds = options.maxAgeSeconds ?? 300;
+	const tokenStore = options.tokenStore ?? new MemoryWebhookTokenStore();
+	// A token stays claimed as long as its timestamp is inside the window:
+	// up to maxAgeSeconds on either side of now.
+	const tokenTtlSeconds = Number.isFinite(maxAgeSeconds)
+		? maxAgeSeconds * 2
+		: Number.MAX_SAFE_INTEGER / 1000;
 
 	return async (ctx: WebhookHttpContext, _next): Promise<void> => {
 		const raw = await Promise.resolve(ctx.request.rawBody());
@@ -84,6 +140,10 @@ export function createMailgunWebhookHandler(
 			.digest("hex");
 		if (!constantTimeEqualHex(expected, sig.signature)) {
 			ctx.response.status(401).json({ error: "invalid_signature" });
+			return;
+		}
+		if (!(await tokenStore.claim(sig.token, tokenTtlSeconds))) {
+			ctx.response.status(401).json({ error: "replayed_signature" });
 			return;
 		}
 
