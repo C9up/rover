@@ -237,6 +237,37 @@ export function attachmentsFor(message: MailMessage): MailAttachment[] {
  * strings as address lists, so `"a@x, b@y"` would add an RCPT TO nobody
  * asked for.
  */
+/** Every line ending as CRLF: a lone CR or LF becomes CRLF. */
+function canonicalLineEndings(text: string): string {
+	return text.replace(/\r\n|\r|\n/g, "\r\n");
+}
+
+/**
+ * The message with every textual body in canonical CRLF form.
+ *
+ * nodemailer sends a short ASCII body as 7bit and normalises LF, but leaves a
+ * lone CR as it is. `<CR>.<CR><LF>` then reaches the DATA stream, and a
+ * receiver that reads a bare CR as a line end takes it for the end of the
+ * message: whatever follows is parsed as new SMTP commands (SMTP smuggling,
+ * CVE-2023-51764). RFC 5321 §2.3.8 forbids a bare CR or LF in the stream.
+ * Stricter than the upstream default, deliberately.
+ */
+export function withCanonicalLineEndings(message: MailMessage): MailMessage {
+	const fix = (text: string | undefined) =>
+		text === undefined ? undefined : canonicalLineEndings(text);
+	const ical = message.icalEvent;
+	return {
+		...message,
+		text: fix(message.text),
+		html: fix(message.html),
+		watchHtml: fix(message.watchHtml),
+		icalEvent:
+			ical?.content === undefined
+				? ical
+				: { ...ical, content: canonicalLineEndings(ical.content) },
+	};
+}
+
 /**
  * Check every header of a message that may not have come through the builder
  * (a queue payload, a hand-built message).

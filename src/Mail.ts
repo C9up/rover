@@ -17,6 +17,7 @@ import {
 	type MailMessage,
 	type MessageBodyTemplates,
 	MessageBuilder,
+	withCanonicalLineEndings,
 } from "./MessageBuilder.js";
 import {
 	type BayQueueLike,
@@ -319,7 +320,8 @@ export class SmtpTransport implements MailTransport {
 		}
 	}
 
-	async send(message: MailMessage): Promise<MailSendOutcome> {
+	async send(original: MailMessage): Promise<MailSendOutcome> {
+		const message = withCanonicalLineEndings(original);
 		if (
 			message.to.length === 0 &&
 			message.cc.length === 0 &&
