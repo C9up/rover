@@ -1,21 +1,14 @@
-import { formatRecipient, type Recipient } from "../format.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
-import {
-	assertNoEnvelope,
-	attachmentsFor,
-	headersWithList,
-	headerValue,
-} from "../MessageBuilder.js";
+import { composeMime } from "../mime.js";
 import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
-const display = (r: Recipient): string => stripCrlf(formatRecipient(r));
 const normalizeConfig = (v: string): string => stripCrlf(v).trim();
 const MAX_PROVIDER_MESSAGE = 16 * 1024;
 const capMessage = (s: string): string =>
@@ -82,7 +75,16 @@ export class MailgunTransport implements MailTransport {
 	}
 
 	async send(message: MailMessage): Promise<MailSendOutcome> {
-		assertNoEnvelope(message, "mailgun");
+		if (message.envelope?.from !== undefined) {
+			throw new RoverError(
+				"E_MAIL_FIELD_UNSUPPORTED",
+				"The mailgun transport cannot set the envelope sender; Mailgun uses the domain's own bounce address.",
+				{
+					hint: "Send this message through an SMTP mailer, or drop envelope().from.",
+					context: { provider: "mailgun", field: "envelope" },
+				},
+			);
+		}
 		if (
 			message.to.length === 0 &&
 			message.cc.length === 0 &&
@@ -95,50 +97,24 @@ export class MailgunTransport implements MailTransport {
 			);
 		}
 
-		// CRLF stripping is applied at the wire boundary regardless of SDK
-		// promises — defence-in-depth. Anti-pattern from spec Dev Notes:
-		// "never skip CRLF sanitisation because the provider will handle it".
-		const data: Record<string, unknown> = {
-			from: display(message.from),
-			// Mailgun requires a `to`. A bcc-only message is valid (the validator
-			// permits it), but an empty `to` makes create() 400 instead of
-			// delivering to the bcc list. Fall back to the sender so the envelope is
-			// accepted and the bcc recipients still receive it (audit 2026-06-13).
-			to: (message.to.length > 0 ? message.to : [message.from]).map(display),
-			subject: stripCrlf(message.subject),
-		};
-		if (message.cc.length) data.cc = message.cc.map(display);
-		if (message.bcc.length) data.bcc = message.bcc.map(display);
-		if (message.text) data.text = message.text;
-		if (message.html) data.html = message.html;
-		if (message.replyTo?.length) {
-			data["h:Reply-To"] = message.replyTo.map(display).join(", ");
-		}
-		for (const [k, raw] of Object.entries(headersWithList(message))) {
-			const v = headerValue(raw);
-			data[`h:${stripCrlf(k)}`] = Array.isArray(v)
-				? v.map(stripCrlf).join(", ")
-				: stripCrlf(v);
-		}
-		// Mailgun takes `multipart/form-data`; Node builds it, and `fetch` sets
-		// the boundary. Scalars first, then one file part per attachment.
+		// `messages.mime`: the message as nodemailer composes it for SMTP, so
+		// Message-ID, In-Reply-To, References, priority, inline cid parts, the
+		// watch body and List-* all arrive as they would over SMTP. `to` is the
+		// delivery list (the envelope), Bcc being absent from the MIME.
+		const composed = await composeMime(message);
 		const form = new FormData();
-		for (const [key, value] of Object.entries(data)) {
-			form.append(key, Array.isArray(value) ? value.join(", ") : String(value));
-		}
-		for (const att of attachmentsFor(message)) {
-			const bytes = Buffer.from(att.content as Buffer | string);
-			const blob = att.contentType
-				? new Blob([bytes], { type: stripCrlf(att.contentType) })
-				: new Blob([bytes]);
-			form.append("attachment", blob, stripCrlf(att.filename));
-		}
+		for (const address of composed.envelope.to) form.append("to", address);
+		form.append(
+			"message",
+			new Blob([new Uint8Array(composed.raw)], { type: "message/rfc822" }),
+			"message.mime",
+		);
 
 		let res: Response;
 		try {
 			res = await fetchWithTimeout(
 				"Mailgun",
-				`${this.#baseUrl}/v3/${encodeURIComponent(this.#domain)}/messages`,
+				`${this.#baseUrl}/v3/${encodeURIComponent(this.#domain)}/messages.mime`,
 				{
 					method: "POST",
 					headers: {
@@ -169,9 +145,13 @@ export class MailgunTransport implements MailTransport {
 				typeof parsed === "object" && parsed !== null
 					? Reflect.get(parsed, "id")
 					: undefined;
-			return typeof id === "string" ? { providerId: id } : undefined;
+			return {
+				providerId:
+					typeof id === "string" ? id.replace(/^<|>$/g, "") : undefined,
+				envelope: composed.envelope,
+			};
 		} catch {
-			return undefined;
+			return { envelope: composed.envelope };
 		}
 	}
 }

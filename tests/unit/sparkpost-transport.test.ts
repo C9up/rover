@@ -26,16 +26,9 @@ const baseMessage = (): MailMessage => ({
 });
 
 interface SparkPostBody {
-	content: {
-		from: { email: string; name?: string };
-		subject: string;
-		html?: string;
-		text?: string;
-		reply_to?: string;
-		headers?: Record<string, string>;
-		attachments?: Array<{ name: string; type: string; data: string }>;
-	};
-	recipients: Array<{ address: { email: string; name?: string } }>;
+	content: { email_rfc822: string };
+	recipients: Array<{ address: { email: string } }>;
+	return_path?: string;
 }
 
 describe("rover > SparkPostTransport", () => {
@@ -92,8 +85,9 @@ describe("rover > SparkPostTransport", () => {
 		);
 	});
 
-	it("maps structured addresses onto SparkPost's address shape", async () => {
+	it("sends nodemailer's MIME as email_rfc822, names encoded in the headers", async () => {
 		const message = baseMessage();
+		message.from = { address: "app@acme.test", name: "Acme" };
 		message.to = [
 			{ address: "ada@acme.test", name: "Ada Lovelace" },
 			"bare@acme.test",
@@ -101,59 +95,53 @@ describe("rover > SparkPostTransport", () => {
 		await new SparkPostTransport({ apiKey: "k" }).send(message);
 
 		expect(body().recipients).toEqual([
-			{ address: { email: "ada@acme.test", name: "Ada Lovelace" } },
+			{ address: { email: "ada@acme.test" } },
 			{ address: { email: "bare@acme.test" } },
 		]);
+		const mime = body().content.email_rfc822;
+		expect(mime).toMatch(/^From: Acme <app@acme.test>\r$/m);
+		expect(mime).toMatch(
+			/^To: Ada Lovelace <ada@acme.test>, bare@acme.test\r$/m,
+		);
+		expect(mime).toMatch(/^Subject: Hello\r$/m);
 	});
 
-	it("folds cc and bcc into the recipient list, so they are delivered", async () => {
+	it("delivers to cc and bcc, shows cc, never bcc", async () => {
 		const message = baseMessage();
 		message.cc = ["cc@acme.test"];
 		message.bcc = ["bcc@acme.test"];
 		await new SparkPostTransport({ apiKey: "k" }).send(message);
 
-		// `recipients` is the only delivery list SparkPost reads — anything not
-		// in it is silently never sent.
 		expect(body().recipients.map((r) => r.address.email)).toEqual([
 			"user@example.com",
 			"cc@acme.test",
 			"bcc@acme.test",
 		]);
+		const mime = body().content.email_rfc822;
+		expect(mime).toMatch(/^Cc: cc@acme.test\r$/m);
+		expect(mime).not.toContain("bcc@acme.test");
 	});
 
-	it("surfaces cc as a header, and never bcc", async () => {
-		const message = baseMessage();
-		message.cc = ["cc@acme.test", "cc2@acme.test"];
-		message.bcc = ["bcc@acme.test"];
-		await new SparkPostTransport({ apiKey: "k" }).send(message);
-
-		// A bcc that reaches a header stops being blind.
-		expect(body().content.headers?.CC).toBe("cc@acme.test, cc2@acme.test");
-		expect(JSON.stringify(body().content.headers)).not.toContain(
-			"bcc@acme.test",
-		);
-	});
-
-	it("omits the header block entirely when there is nothing to put in it", async () => {
-		await new SparkPostTransport({ apiKey: "k" }).send(baseMessage());
-
-		expect(body().content.headers).toBeUndefined();
-	});
-
-	it("carries reply-to, html and text through", async () => {
+	it("carries reply-to, headers, html, text and attachments in the MIME", async () => {
 		const message = baseMessage();
 		message.replyTo = ["reply@acme.test"];
+		message.headers = { "X-Tag": ["a", "b"] };
+		message.attachments = [
+			{ filename: "report.bin", content: Buffer.from([1, 2, 3]) },
+		];
 		await new SparkPostTransport({ apiKey: "k" }).send(message);
 
-		expect(body().content.reply_to).toBe("reply@acme.test");
-		expect(body().content.html).toBe("<p>Hi</p>");
-		expect(body().content.text).toBe("Hi");
+		const mime = body().content.email_rfc822;
+		expect(mime).toMatch(/^Reply-To: reply@acme.test\r$/m);
+		expect(mime).toMatch(/^X-Tag: a\r$/m);
+		expect(mime).toContain("<p>Hi</p>");
+		expect(mime).toContain("filename=report.bin");
+		expect(mime).toContain(Buffer.from([1, 2, 3]).toString("base64"));
 	});
 
 	it("refuses a message addressed to nobody at all", async () => {
 		const message = baseMessage();
 		message.to = [];
-
 		await expect(
 			new SparkPostTransport({ apiKey: "k" }).send(message),
 		).rejects.toThrow(/no recipients/);
@@ -171,64 +159,38 @@ describe("rover > SparkPostTransport", () => {
 		]);
 	});
 
-	it("strips line terminators out of everything it copies", async () => {
+	it("lets no line break in the subject open a header", async () => {
 		const message = baseMessage();
 		message.subject = "Hello\r\nBcc: attacker@evil.test";
-		message.from = "sender@example.com\r\n";
-		message.headers = { "X-Tag": "one\r\ntwo" };
 		await new SparkPostTransport({ apiKey: "k" }).send(message);
 
-		expect(body().content.subject).not.toMatch(/[\r\n]/);
-		expect(JSON.stringify(body().content.from)).not.toMatch(/\\r|\\n/);
-		expect(body().content.headers?.["X-Tag"]).not.toMatch(/[\r\n]/);
+		expect(body().content.email_rfc822).not.toMatch(/^Bcc:/im);
 	});
 
-	it("joins a multi-valued header rather than dropping one", async () => {
+	it("passes the envelope sender as return_path and the envelope recipients", async () => {
 		const message = baseMessage();
-		message.headers = { "X-Tag": ["a", "b"] };
+		message.envelope = { from: "bounce@acme.test", to: ["env@acme.test"] };
 		await new SparkPostTransport({ apiKey: "k" }).send(message);
 
-		expect(body().content.headers?.["X-Tag"]).toBe("a, b");
-	});
-
-	it("base64-encodes attachments, with a type when the caller gave none", async () => {
-		const message = baseMessage();
-		message.attachments = [
-			{ filename: "note.txt", content: Buffer.from("hello") },
-			{
-				filename: "doc.pdf",
-				content: Buffer.from("%PDF"),
-				contentType: "application/pdf",
-			},
-		];
-		await new SparkPostTransport({ apiKey: "k" }).send(message);
-
-		expect(body().content.attachments).toEqual([
-			{
-				name: "note.txt",
-				type: "application/octet-stream",
-				data: Buffer.from("hello").toString("base64"),
-			},
-			{
-				name: "doc.pdf",
-				type: "application/pdf",
-				data: Buffer.from("%PDF").toString("base64"),
-			},
+		expect(body().return_path).toBe("bounce@acme.test");
+		expect(body().recipients).toEqual([
+			{ address: { email: "env@acme.test" } },
 		]);
 	});
 
 	it("hands back the transmission id", async () => {
-		expect(
-			await new SparkPostTransport({ apiKey: "k" }).send(baseMessage()),
-		).toEqual({ providerId: "11668787484950529" });
+		const result = await new SparkPostTransport({ apiKey: "k" }).send(
+			baseMessage(),
+		);
+		expect(result?.providerId).toBe("11668787484950529");
 	});
 
 	it("falls back to a generated id when the body carries none", async () => {
-		fetchSpy.mockResolvedValue(new Response("", { status: 200 }));
-
-		expect(
-			await new SparkPostTransport({ apiKey: "k" }).send(baseMessage()),
-		).toBeUndefined();
+		fetchSpy.mockResolvedValue(new Response("{}", { status: 200 }));
+		const result = await new SparkPostTransport({ apiKey: "k" }).send(
+			baseMessage(),
+		);
+		expect(result?.providerId).toBeUndefined();
 	});
 
 	it("carries the status and the backoff hint on a refusal", async () => {

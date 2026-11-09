@@ -31,7 +31,12 @@ describe("rover > MailgunTransport", () => {
 	/** The multipart body of the one call made. */
 	const form = (): FormData =>
 		requestInit(fetchSpy.mock.calls, 0).body as FormData;
-	const field = (name: string): string => String(form().get(name) ?? "");
+	/** The MIME message posted as the `message` file. */
+	const mime = async (): Promise<string> => {
+		const file = form().get("message");
+		if (!(file instanceof Blob)) throw new Error("no message part");
+		return file.text();
+	};
 	const url = (): string => String(fetchSpy.mock.calls[0]?.[0]);
 	const headers = (): Record<string, string> =>
 		requestInit(fetchSpy.mock.calls, 0).headers as Record<string, string>;
@@ -56,16 +61,18 @@ describe("rover > MailgunTransport", () => {
 			...over,
 		});
 
-	it("posts the message to the domain's endpoint", async () => {
+	it("posts nodemailer's MIME to the domain's messages.mime endpoint", async () => {
 		const result = await transport().send(baseMessage());
 
-		expect(url()).toBe("https://api.mailgun.net/v3/mg.example.com/messages");
-		expect(field("from")).toBe("sender@example.com");
-		expect(field("to")).toBe("user@example.com");
-		expect(field("subject")).toBe("Hello");
-		expect(field("html")).toBe("<p>Hi</p>");
-		expect(field("text")).toBe("Hi");
-		expect(result).toEqual({ providerId: "<mg-1@example>" });
+		expect(url()).toBe(
+			"https://api.mailgun.net/v3/mg.example.com/messages.mime",
+		);
+		expect(form().getAll("to")).toEqual(["user@example.com"]);
+		const raw = await mime();
+		expect(raw).toMatch(/^From: sender@example.com\r$/m);
+		expect(raw).toMatch(/^Subject: Hello\r$/m);
+		expect(raw).toContain("<p>Hi</p>");
+		expect(result?.providerId).toBe("mg-1@example");
 	});
 
 	it("authenticates with HTTP Basic, username `api`", async () => {
@@ -75,17 +82,15 @@ describe("rover > MailgunTransport", () => {
 		expect(headers().Authorization).toBe(`Basic ${expected}`);
 	});
 
-	it("falls back to the sender for `to` on a bcc-only message", async () => {
-		// Mailgun 400s without a `to`, and a bcc-only message is valid — so the
-		// envelope carries the sender and the bcc list still receives it.
+	it("delivers a bcc-only message through `to`, with no Bcc header", async () => {
 		await transport().send({
 			...baseMessage(),
 			to: [],
 			bcc: ["hidden@example.com"],
 		});
 
-		expect(field("to")).toBe("sender@example.com");
-		expect(field("bcc")).toBe("hidden@example.com");
+		expect(form().getAll("to")).toEqual(["hidden@example.com"]);
+		expect(await mime()).not.toContain("hidden@example.com");
 	});
 
 	it("carries cc, bcc, reply-to, custom headers and attachments", async () => {
@@ -104,21 +109,21 @@ describe("rover > MailgunTransport", () => {
 			],
 		});
 
-		expect(field("cc")).toBe("cc@example.com");
-		expect(field("bcc")).toBe("bcc@example.com");
-		expect(field("h:Reply-To")).toBe("reply@example.com");
-		expect(field("h:X-Campaign")).toBe("spring");
-
-		const attachment = form().get("attachment");
-		expect(attachment).toBeInstanceOf(Blob);
-		if (attachment instanceof File) {
-			expect(attachment.name).toBe("invoice.pdf");
-			expect(attachment.type).toBe("application/pdf");
-			expect(await attachment.text()).toBe("%PDF-1.4");
-		}
+		expect(form().getAll("to")).toEqual([
+			"user@example.com",
+			"cc@example.com",
+			"bcc@example.com",
+		]);
+		const raw = await mime();
+		expect(raw).toMatch(/^Cc: cc@example.com\r$/m);
+		expect(raw).not.toMatch(/^Bcc:/m);
+		expect(raw).toMatch(/^Reply-To: reply@example.com\r$/m);
+		expect(raw).toMatch(/^X-Campaign: spring\r$/m);
+		expect(raw).toContain("filename=invoice.pdf");
+		expect(raw).toContain(Buffer.from("%PDF-1.4").toString("base64"));
 	});
 
-	it("strips CRLF everywhere a header could be injected", async () => {
+	it("lets no line break open a header", async () => {
 		await transport().send({
 			...baseMessage(),
 			to: ["user@example.com\r\nBcc: attacker@evil.test"],
@@ -127,9 +132,12 @@ describe("rover > MailgunTransport", () => {
 			headers: { "X-Tag": "one\r\ntwo" },
 		});
 
-		for (const name of ["to", "subject", "h:Reply-To", "h:X-Tag"]) {
-			expect(field(name)).not.toMatch(/[\r\n]/);
+		for (const to of form().getAll("to")) {
+			expect(String(to)).not.toMatch(/[\r\n]/);
 		}
+		const raw = await mime();
+		expect(raw).not.toMatch(/^(Bcc|X-Injected):/im);
+		expect(raw).not.toMatch(/^two\r$/m);
 	});
 
 	it("refuses a message with no recipients at all", async () => {
@@ -185,13 +193,15 @@ describe("rover > MailgunTransport", () => {
 	it("answers no providerId when the response carries none", async () => {
 		fetchSpy.mockResolvedValue(ok({ message: "Queued" }));
 
-		expect(await transport().send(baseMessage())).toBeUndefined();
+		expect((await transport().send(baseMessage()))?.providerId).toBeUndefined();
 	});
 
 	it("routes EU traffic to the EU host, whatever the casing", async () => {
 		await transport({ region: "EU" }).send(baseMessage());
 
-		expect(url()).toBe("https://api.eu.mailgun.net/v3/mg.example.com/messages");
+		expect(url()).toBe(
+			"https://api.eu.mailgun.net/v3/mg.example.com/messages.mime",
+		);
 	});
 
 	it("refuses a region it does not know, rather than defaulting to US", async () => {
@@ -207,7 +217,9 @@ describe("rover > MailgunTransport", () => {
 			domain: " mg.example.com ",
 		}).send(baseMessage());
 
-		expect(url()).toBe("https://api.mailgun.net/v3/mg.example.com/messages");
+		expect(url()).toBe(
+			"https://api.mailgun.net/v3/mg.example.com/messages.mime",
+		);
 		expect(headers().Authorization).toBe(
 			`Basic ${Buffer.from("api:key-1").toString("base64")}`,
 		);

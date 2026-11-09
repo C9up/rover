@@ -177,15 +177,26 @@ describe("rover > HTTP transports map names without re-parsing", () => {
 		});
 	});
 
-	it("SparkPost sends the name unescaped", async () => {
+	it("SparkPost puts one mailbox in the MIME To header and the address in recipients", async () => {
 		fetchSpy.mockResolvedValue(
 			new Response('{"results":{"id":"x"}}', { status: 200 }),
 		);
 		await new SparkPostTransport({ apiKey: "k" }).send(await message());
 		const body: unknown = JSON.parse(requestBody(fetchSpy.mock.calls));
 		expect(body).toMatchObject({
-			recipients: [{ address: { email: "bob@example.com", name } }],
+			recipients: [{ address: { email: "bob@example.com" } }],
 		});
+		const content =
+			typeof body === "object" && body !== null
+				? Reflect.get(body, "content")
+				: undefined;
+		const mime = String(
+			typeof content === "object" && content !== null
+				? Reflect.get(content, "email_rfc822")
+				: "",
+		);
+		const to = mime.match(/^To: (.+)\r$/m)?.[1] ?? "";
+		expect(to).toBe('"Bob \\"The Builder\\" O\\\\Neil" <bob@example.com>');
 	});
 });
 

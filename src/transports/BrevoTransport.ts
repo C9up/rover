@@ -1,4 +1,3 @@
-import { Buffer } from "node:buffer";
 import { contactOf } from "../format.js";
 import {
 	type MailMessage,
@@ -8,8 +7,9 @@ import {
 } from "../Mail.js";
 import {
 	assertNoEnvelope,
+	attachmentBytes,
 	attachmentsFor,
-	headersWithList,
+	headersForApi,
 	headerValue,
 } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
@@ -113,7 +113,7 @@ export class BrevoTransport implements MailTransport {
 		if (firstReplyTo !== undefined) body.replyTo = contactOf(firstReplyTo);
 		if (message.html) body.htmlContent = message.html;
 		if (message.text) body.textContent = message.text;
-		const customHeaders = Object.entries(headersWithList(message));
+		const customHeaders = Object.entries(headersForApi(message));
 		if (customHeaders.length > 0) {
 			body.headers = {};
 			for (const [k, raw] of customHeaders) {
@@ -126,7 +126,9 @@ export class BrevoTransport implements MailTransport {
 		if (attachmentsFor(message).length > 0) {
 			body.attachment = attachmentsFor(message).map((att) => ({
 				name: stripCrlf(att.filename),
-				content: Buffer.from(att.content as Buffer | string).toString("base64"),
+				// Brevo has no inline (cid) parts: an embed() goes as a regular
+				// attachment, as upstream's Brevo transport sends it.
+				content: attachmentBytes(att).toString("base64"),
 			}));
 		}
 

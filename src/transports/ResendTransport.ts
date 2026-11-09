@@ -1,4 +1,3 @@
-import { Buffer } from "node:buffer";
 import { formatRecipient, type Recipient } from "../format.js";
 import {
 	type MailMessage,
@@ -8,8 +7,9 @@ import {
 } from "../Mail.js";
 import {
 	assertNoEnvelope,
+	attachmentBytes,
 	attachmentsFor,
-	headersWithList,
+	headersForApi,
 	headerValue,
 } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
@@ -42,6 +42,7 @@ interface ResendBody {
 		filename: string;
 		content: string;
 		content_type?: string;
+		content_id?: string;
 	}>;
 	headers?: Record<string, string>;
 }
@@ -86,18 +87,15 @@ export class ResendTransport implements MailTransport {
 		if (message.html) body.html = message.html;
 		if (message.text) body.text = message.text;
 		if (attachmentsFor(message).length > 0) {
-			body.attachments = attachmentsFor(message).map((att) => {
-				const buf = Buffer.from(att.content as Buffer | string);
-				return {
-					filename: stripCrlf(att.filename),
-					content: buf.toString("base64"),
-					content_type: att.contentType
-						? stripCrlf(att.contentType)
-						: undefined,
-				};
-			});
+			body.attachments = attachmentsFor(message).map((att) => ({
+				filename: stripCrlf(att.filename),
+				content: attachmentBytes(att).toString("base64"),
+				content_type: att.contentType ? stripCrlf(att.contentType) : undefined,
+				// An embed()'s cid, so `<img src="cid:…">` resolves inline.
+				content_id: att.cid ? stripCrlf(att.cid) : undefined,
+			}));
 		}
-		const customHeaders = Object.entries(headersWithList(message));
+		const customHeaders = Object.entries(headersForApi(message));
 		if (customHeaders.length > 0) {
 			body.headers = {};
 			for (const [k, raw] of customHeaders) {

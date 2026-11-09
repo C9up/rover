@@ -1,22 +1,14 @@
-import { Buffer } from "node:buffer";
-import { contactOf, formatRecipient, type Recipient } from "../format.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
-import {
-	assertNoEnvelope,
-	attachmentsFor,
-	headersWithList,
-	headerValue,
-} from "../MessageBuilder.js";
+import { composeMime } from "../mime.js";
 import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
-const display = (r: Recipient): string => stripCrlf(formatRecipient(r));
 const normalizeConfig = (v: string): string => stripCrlf(v).trim();
 const MAX_PROVIDER_MESSAGE = 16 * 1024;
 const capMessage = (s: string): string =>
@@ -29,21 +21,13 @@ const redactSecrets = (s: string): string =>
 		.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer [REDACTED]")
 		.replace(/Basic\s+[A-Za-z0-9+/=]+/g, "Basic [REDACTED]");
 
-interface SparkPostRecipient {
-	address: { email: string; name?: string };
-}
-
 interface SparkPostBody {
-	content: {
-		from: { email: string; name?: string };
-		subject: string;
-		html?: string;
-		text?: string;
-		reply_to?: string;
-		headers?: Record<string, string>;
-		attachments?: Array<{ name: string; type: string; data: string }>;
-	};
-	recipients: SparkPostRecipient[];
+	/** RFC 822 content: the MIME as nodemailer composes it for SMTP. */
+	content: { email_rfc822: string };
+	/** Who it is delivered to — the envelope, bcc included. */
+	recipients: Array<{ address: { email: string } }>;
+	/** The envelope sender (bounce address), when the caller set one. */
+	return_path?: string;
 }
 
 /**
@@ -79,7 +63,6 @@ export class SparkPostTransport implements MailTransport {
 	}
 
 	async send(message: MailMessage): Promise<MailSendOutcome> {
-		assertNoEnvelope(message, "sparkpost");
 		if (
 			message.to.length === 0 &&
 			message.cc.length === 0 &&
@@ -91,44 +74,19 @@ export class SparkPostTransport implements MailTransport {
 				{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
 			);
 		}
-		// SparkPost delivers to every address in `recipients`; cc/bcc are folded in
-		// so they receive the message, and cc is surfaced via a `CC` header for
-		// display (bcc stays hidden by design).
-		const recipients: SparkPostRecipient[] = [
-			...message.to,
-			...message.cc,
-			...message.bcc,
-		].map((addr) => ({ address: contactOf(addr) }));
-
+		// `email_rfc822`, as the upstream SparkPost transport sends it: threading
+		// headers, priority, inline cid parts, the watch body and List-* travel
+		// as they would over SMTP, and Bcc stays out of the headers while the
+		// recipient list still delivers to it.
+		const composed = await composeMime(message);
 		const body: SparkPostBody = {
-			content: {
-				from: contactOf(message.from),
-				subject: stripCrlf(message.subject),
-			},
-			recipients,
+			content: { email_rfc822: composed.raw.toString("utf8") },
+			recipients: composed.envelope.to.map((email) => ({
+				address: { email },
+			})),
 		};
-		if (message.html) body.content.html = message.html;
-		if (message.text) body.content.text = message.text;
-		if (message.replyTo?.length) {
-			body.content.reply_to = message.replyTo.map(display).join(", ");
-		}
-		const headers: Record<string, string> = {};
-		for (const [k, raw] of Object.entries(headersWithList(message))) {
-			const v = headerValue(raw);
-			headers[stripCrlf(k)] = Array.isArray(v)
-				? v.map(stripCrlf).join(", ")
-				: stripCrlf(v);
-		}
-		if (message.cc.length) headers.CC = message.cc.map(display).join(", ");
-		if (Object.keys(headers).length > 0) body.content.headers = headers;
-		if (attachmentsFor(message).length > 0) {
-			body.content.attachments = attachmentsFor(message).map((att) => ({
-				name: stripCrlf(att.filename),
-				type: att.contentType
-					? stripCrlf(att.contentType)
-					: "application/octet-stream",
-				data: Buffer.from(att.content as Buffer | string).toString("base64"),
-			}));
+		if (message.envelope?.from !== undefined && composed.envelope.from) {
+			body.return_path = composed.envelope.from;
 		}
 
 		let res: Response;
@@ -168,15 +126,22 @@ export class SparkPostTransport implements MailTransport {
 		}
 		// Success: SparkPost returns `{ results: { id: "<id>", ... } }`.
 		try {
-			const parsed = (await res.json()) as { results?: { id?: string } };
-			const id = parsed.results?.id;
+			const parsed: unknown = await res.json();
+			const results =
+				typeof parsed === "object" && parsed !== null
+					? Reflect.get(parsed, "results")
+					: undefined;
+			const id =
+				typeof results === "object" && results !== null
+					? Reflect.get(results, "id")
+					: undefined;
 			if (typeof id === "string" && id.length > 0) {
-				return { providerId: id };
+				return { providerId: id, envelope: composed.envelope };
 			}
 		} catch {
 			// Empty / non-JSON body — fall back to generated id.
 		}
-		return undefined;
+		return { envelope: composed.envelope };
 	}
 }
 

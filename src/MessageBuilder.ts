@@ -491,6 +491,54 @@ export function listHeaders(message: MailMessage): Record<string, string> {
 	return out;
 }
 
+/** A message id in its header form, `<id>`. */
+function angled(id: string): string {
+	return `<${id.trim().replace(/^<|>$/g, "")}>`;
+}
+
+/** The priority headers nodemailer writes (mail-message `setPriorityHeaders`). */
+const PRIORITY_HEADERS: Record<"high" | "low", Record<string, string>> = {
+	high: {
+		"X-Priority": "1 (Highest)",
+		"X-MSMail-Priority": "High",
+		Importance: "High",
+	},
+	low: {
+		"X-Priority": "5 (Lowest)",
+		"X-MSMail-Priority": "Low",
+		Importance: "Low",
+	},
+};
+
+/**
+ * Every header a provider JSON API has to be handed explicitly: the
+ * message's own, `List-*`, the threading ids (Message-ID, In-Reply-To,
+ * References) and the priority, which nodemailer would otherwise have
+ * written. Without them replies sent through these mailers are not threaded.
+ */
+export function headersForApi(
+	message: MailMessage,
+): Record<string, string | string[] | PreparedHeader> {
+	const out = headersWithList(message);
+	if (message.messageId) out["Message-ID"] = angled(message.messageId);
+	if (message.inReplyTo) out["In-Reply-To"] = angled(message.inReplyTo);
+	if (message.references?.length) {
+		out.References = message.references.map(angled).join(" ");
+	}
+	if (message.priority === "high" || message.priority === "low") {
+		Object.assign(out, PRIORITY_HEADERS[message.priority]);
+	}
+	return out;
+}
+
+/** An attachment's bytes, whichever form they were given in. */
+export function attachmentBytes(attachment: MailAttachment): Buffer {
+	const { content } = attachment;
+	return typeof content === "string"
+		? Buffer.from(content)
+		: Buffer.from(content);
+}
+
 /**
  * A message's own headers plus its rendered `List-*` headers: what a
  * transport without nodemailer's `list` field sends.
@@ -884,19 +932,21 @@ export class MessageBuilder {
 
 	/** Set a custom `Message-ID` header. */
 	messageId(messageId: string): this {
-		this.#msg.messageId = messageId;
+		this.#msg.messageId = assertHeaderValue(messageId, "Message-ID");
 		return this;
 	}
 
 	/** Set the `In-Reply-To` header for threading replies. */
 	inReplyTo(messageId: string): this {
-		this.#msg.inReplyTo = messageId;
+		this.#msg.inReplyTo = assertHeaderValue(messageId, "In-Reply-To");
 		return this;
 	}
 
 	/** Set the `References` header (thread message ids). */
 	references(messageIds: string[]): this {
-		this.#msg.references = messageIds.slice();
+		this.#msg.references = messageIds.map((id) =>
+			assertHeaderValue(id, "References"),
+		);
 		return this;
 	}
 

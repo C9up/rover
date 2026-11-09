@@ -7,8 +7,9 @@ import {
 } from "../Mail.js";
 import {
 	assertNoEnvelope,
+	attachmentBytes,
 	attachmentsFor,
-	headersWithList,
+	headersForApi,
 	headerValue,
 } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
@@ -77,9 +78,9 @@ export class SendGridTransport implements MailTransport {
 		} else if (replyTo.length > 1) {
 			body.reply_to_list = replyTo.map(address);
 		}
-		if (Object.keys(headersWithList(message)).length) {
+		if (Object.keys(headersForApi(message)).length) {
 			body.headers = Object.fromEntries(
-				Object.entries(headersWithList(message)).map(([k, raw]) => {
+				Object.entries(headersForApi(message)).map(([k, raw]) => {
 					const v = headerValue(raw);
 					return [
 						stripCrlf(k),
@@ -93,12 +94,15 @@ export class SendGridTransport implements MailTransport {
 			body.attachments = attachments.map((att) => {
 				const entry: Record<string, string> = {
 					filename: stripCrlf(att.filename),
-					content: Buffer.from(att.content as Buffer | string).toString(
-						"base64",
-					),
+					content: attachmentBytes(att).toString("base64"),
 					disposition: "attachment",
 				};
 				if (att.contentType) entry.type = stripCrlf(att.contentType);
+				// An embed()'s cid: inline, so `<img src="cid:…">` resolves.
+				if (att.cid) {
+					entry.disposition = "inline";
+					entry.content_id = stripCrlf(att.cid);
+				}
 				return entry;
 			});
 		}
