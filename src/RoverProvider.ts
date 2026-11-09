@@ -1,6 +1,8 @@
 import "./augmentations.js";
+import { field, isRecord } from "./guards.js";
 import type { EmitterLike, MailConfig } from "./Mail.js";
 import { Mail } from "./Mail.js";
+import { MessageBuilder, type TemplateEngine } from "./MessageBuilder.js";
 import type { BayQueueLike } from "./queue/MailJob.js";
 import { RoverError } from "./RoverError.js";
 import { clearMail, getMail, setMail } from "./services/main.js";
@@ -25,11 +27,15 @@ interface RoverConfigStore {
 export interface RoverAppContext {
 	container: RoverContainer;
 	config: RoverConfigStore;
+	/** Set by inker's provider when the app renders views with it. */
+	usingInker?: boolean;
 }
 
 export default class RoverProvider {
 	/** The Mail this provider bound, so shutdown only clears its own. */
 	#mail: Mail | undefined;
+	/** The template engine this provider registered, likewise. */
+	#templateEngine: TemplateEngine | undefined;
 
 	constructor(protected app: RoverAppContext) {}
 
@@ -69,6 +75,12 @@ export default class RoverProvider {
 	}
 
 	async boot() {
+		// Mail views render with the app's view engine when it has one, as the
+		// upstream provider registers Edge for its Message class.
+		if (this.app.usingInker === true) {
+			this.#templateEngine = await inkerTemplateEngine();
+			MessageBuilder.templateEngine = this.#templateEngine;
+		}
 		// Populate the `@c9up/rover/services/main` singleton with the
 		// container-resolved Mail instance so apps can
 		// `import mail from '@c9up/rover/services/main'` from anywhere.
@@ -84,6 +96,13 @@ export default class RoverProvider {
 		// shutting down must not clear a binding the other has since installed.
 		if (this.#mail !== undefined && getMail() === this.#mail) clearMail();
 		this.#mail = undefined;
+		if (
+			this.#templateEngine !== undefined &&
+			MessageBuilder.templateEngine === this.#templateEngine
+		) {
+			MessageBuilder.templateEngine = undefined;
+		}
+		this.#templateEngine = undefined;
 	}
 }
 
@@ -106,4 +125,62 @@ async function tryResolve<T>(
 		return undefined;
 	}
 	return await app.container.resolve<T>(token);
+}
+
+/** An object with a `share(state)` method: inker's module singleton. */
+function isSharingEngine(
+	value: unknown,
+): value is { share(state: Record<string, unknown>): unknown } {
+	return isRecord(value) && typeof value.share === "function";
+}
+
+function unusableInker(reason: string): RoverError {
+	return new RoverError(
+		"E_MAIL_TEMPLATE_ENGINE",
+		`The app uses inker, but rover cannot render mail views with it: ${reason}`,
+		{
+			hint: "Install a @c9up/inker version whose default export has share(state).render(template, data).",
+		},
+	);
+}
+
+/**
+ * Mail views through inker: `inker.share(sharedState).render(template, data)`,
+ * the same call the upstream provider makes on Edge. Fails loudly when the
+ * module is not what that needs, rather than quietly rendering with rover's
+ * built-in engine, which reads a different template language.
+ */
+async function inkerTemplateEngine(): Promise<TemplateEngine> {
+	// A computed specifier: inker is an optional peer, so a bundler must not
+	// try to resolve it for apps that do not install it.
+	const specifier = "@c9up/inker";
+	let loaded: unknown;
+	try {
+		loaded = await import(/* @vite-ignore */ specifier);
+	} catch (cause) {
+		throw unusableInker(
+			`importing @c9up/inker failed (${cause instanceof Error ? cause.message : String(cause)})`,
+		);
+	}
+	const inker = field(loaded, "default");
+	if (!isSharingEngine(inker)) {
+		throw unusableInker("its default export has no share() method");
+	}
+	return {
+		async render(template, sharedState, data) {
+			const renderer = inker.share(sharedState);
+			const render = field(renderer, "render");
+			if (typeof render !== "function") {
+				throw unusableInker("share() returned no render() method");
+			}
+			const html: unknown = await Reflect.apply(render, renderer, [
+				template,
+				data,
+			]);
+			if (typeof html !== "string") {
+				throw unusableInker(`render('${template}') did not produce a string`);
+			}
+			return html;
+		},
+	};
 }
