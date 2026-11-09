@@ -4,7 +4,6 @@ import { BrevoTransport } from "../../src/transports/BrevoTransport.js";
 import { MailgunTransport } from "../../src/transports/MailgunTransport.js";
 import { ResendTransport } from "../../src/transports/ResendTransport.js";
 import { SendGridTransport } from "../../src/transports/SendGridTransport.js";
-import { SesTransport } from "../../src/transports/SesTransport.js";
 import { SparkPostTransport } from "../../src/transports/SparkPostTransport.js";
 import { type FakeSmtp, startFakeSmtp } from "../__helpers__/fakeSmtp.js";
 
@@ -141,15 +140,6 @@ describe("rover > a provider that cannot carry the envelope says so", () => {
 		["brevo", () => new BrevoTransport({ apiKey: "k" })],
 		["mailgun", () => new MailgunTransport({ apiKey: "k", domain: "d.test" })],
 		["sparkpost", () => new SparkPostTransport({ apiKey: "k" })],
-		[
-			"ses",
-			() =>
-				new SesTransport({
-					region: "eu-west-1",
-					accessKeyId: "AKID",
-					secretAccessKey: "secret",
-				}),
-		],
 	])("%s", async (_name, make) => {
 		await expect(make().send(message())).rejects.toMatchObject({
 			code: "E_MAIL_FIELD_UNSUPPORTED",

@@ -1,40 +1,16 @@
-import { Buffer } from "node:buffer";
-import { createHash, createHmac, randomBytes } from "node:crypto";
-import { formatRecipient, type Recipient } from "../format.js";
+import { createHash, createHmac } from "node:crypto";
 import {
-	type MailAttachment,
 	type MailMessage,
 	type MailSendOutcome,
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
-import {
-	assertNoEnvelope,
-	attachmentsFor,
-	headersWithList,
-} from "../MessageBuilder.js";
+import { composeMime } from "../mime.js";
 import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
-const display = (r: Recipient): string => stripCrlf(formatRecipient(r));
 const normalizeConfig = (v: string): string => stripCrlf(v).trim();
-/** RFC 2183: quote `"` and `\` inside filename="..." / name="..." parameters. */
-const mimeQuote = (v: string): string =>
-	stripCrlf(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-/**
- * RFC 2047 encoded-word wrapping for non-ASCII header values.
- * Returns the input as-is when it contains only ASCII; otherwise returns a
- * base64 encoded-word (`=?UTF-8?B?...?=`). Safe for Subject, From, To display
- * names, etc. — raw 8-bit in headers is non-conformant under RFC 5322.
- */
-function encodeHeaderWord(v: string): string {
-	const stripped = stripCrlf(v);
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: matching non-ASCII explicitly (any byte > 0x7F is non-ASCII)
-	if (!/[^\x00-\x7F]/.test(stripped)) return stripped;
-	const b64 = Buffer.from(stripped, "utf8").toString("base64");
-	return `=?UTF-8?B?${b64}?=`;
-}
 const REGION_RE = /^[a-z0-9-]+$/;
 const MAX_PROVIDER_MESSAGE = 16 * 1024;
 const capMessage = (s: string): string =>
@@ -92,7 +68,6 @@ export class SesTransport implements MailTransport {
 	}
 
 	async send(message: MailMessage): Promise<MailSendOutcome> {
-		assertNoEnvelope(message, "ses");
 		if (
 			message.to.length === 0 &&
 			message.cc.length === 0 &&
@@ -105,15 +80,14 @@ export class SesTransport implements MailTransport {
 			);
 		}
 
-		// Custom headers are only honoured on the SendRawEmail path (where we
-		// compose the MIME ourselves), so flip to raw whenever the message
-		// carries headers, even without attachments.
-		const useRaw =
-			attachmentsFor(message).length > 0 ||
-			Object.keys(message.headers).length > 0;
-		const form = useRaw
-			? buildRawEmailForm(message)
-			: buildSendEmailForm(message);
+		// Always SendRawEmail, with MIME composed by nodemailer as the SMTP
+		// transport would send it: encoded-words only around display names,
+		// transfer-encoded bodies, folded lines, inline parts, threading
+		// headers. The envelope travels as Source (bounce address) and
+		// Destinations, which is also how bcc recipients get delivered
+		// without a Bcc header in the MIME.
+		const composed = await composeMime(message);
+		const form = rawEmailForm(composed.raw, composed.envelope, message);
 
 		const url = `https://${this.#host}/`;
 		const headers = this.#signRequest("POST", form);
@@ -152,11 +126,13 @@ export class SesTransport implements MailTransport {
 		try {
 			const xml = await res.text();
 			const match = xml.match(/<MessageId>([^<]+)<\/MessageId>/);
-			if (match?.[1]) return { providerId: match[1] };
+			if (match?.[1]) {
+				return { providerId: match[1], envelope: composed.envelope };
+			}
 		} catch {
 			// Network truncation on success response is rare; fall back to generated id.
 		}
-		return;
+		return { envelope: composed.envelope };
 	}
 
 	/** SigV4 header signer, scoped to `ses`. Canonical request: POST / with form body. */
@@ -208,206 +184,27 @@ export class SesTransport implements MailTransport {
 	}
 }
 
-function buildSendEmailForm(message: MailMessage): string {
-	const params: Array<[string, string]> = [];
-	params.push(["Action", "SendEmail"]);
-	params.push(["Source", display(message.from)]);
-	message.to.forEach((addr, i) => {
-		params.push([`Destination.ToAddresses.member.${i + 1}`, display(addr)]);
-	});
-	message.cc.forEach((addr, i) => {
-		params.push([`Destination.CcAddresses.member.${i + 1}`, display(addr)]);
-	});
-	message.bcc.forEach((addr, i) => {
-		params.push([`Destination.BccAddresses.member.${i + 1}`, display(addr)]);
-	});
-	(message.replyTo ?? []).forEach((addr, i) => {
-		params.push([`ReplyToAddresses.member.${i + 1}`, display(addr)]);
-	});
-	params.push(["Message.Subject.Data", stripCrlf(message.subject)]);
-	params.push(["Message.Subject.Charset", "UTF-8"]);
-	if (message.html) {
-		params.push(["Message.Body.Html.Data", message.html]);
-		params.push(["Message.Body.Html.Charset", "UTF-8"]);
+/** The SendRawEmail form: the MIME, the bounce address and the recipients. */
+function rawEmailForm(
+	raw: Buffer,
+	envelope: { from: string | false; to: string[] },
+	message: MailMessage,
+): string {
+	const params: Array<[string, string]> = [
+		["Action", "SendRawEmail"],
+		["RawMessage.Data", raw.toString("base64")],
+	];
+	// Source is the envelope sender; only set when the caller chose one, so
+	// SES otherwise keeps deriving it from the From header as before.
+	if (message.envelope?.from !== undefined && envelope.from !== false) {
+		params.push(["Source", envelope.from]);
 	}
-	if (message.text) {
-		params.push(["Message.Body.Text.Data", message.text]);
-		params.push(["Message.Body.Text.Charset", "UTF-8"]);
-	}
+	envelope.to.forEach((address, i) => {
+		params.push([`Destinations.member.${i + 1}`, address]);
+	});
 	return params
 		.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
 		.join("&");
-}
-
-function buildRawEmailForm(message: MailMessage): string {
-	const raw = buildRawMime(message);
-	const b64 = Buffer.from(raw).toString("base64");
-	// Targeted URL-escape: base64's alphabet is URL-safe *except* for `+` / `/`
-	// and the trailing `=` padding. Replacing only those three avoids walking
-	// the entire string character-by-character the way encodeURIComponent does.
-	const urlEncoded = b64.replace(/[+/=]/g, (c) =>
-		c === "+" ? "%2B" : c === "/" ? "%2F" : "%3D",
-	);
-	const parts = ["Action=SendRawEmail", `RawMessage.Data=${urlEncoded}`];
-	// SendRawEmail only delivers to addresses in the MIME headers UNLESS
-	// Destinations is supplied. Bcc is deliberately kept out of the MIME (it must
-	// stay hidden), so when there are bcc recipients we MUST enumerate every
-	// recipient (to + cc + bcc) as Destinations — otherwise bcc is silently
-	// dropped. No bcc → leave delivery to header parsing (unchanged).
-	if (message.bcc.length > 0) {
-		const recipients = [...message.to, ...message.cc, ...message.bcc];
-		recipients.forEach((addr, i) => {
-			parts.push(
-				`Destinations.member.${i + 1}=${encodeURIComponent(display(addr))}`,
-			);
-		});
-	}
-	return parts.join("&");
-}
-
-function buildRawMime(message: MailMessage): string {
-	const parts: string[] = [];
-	const header = (r: Recipient) => encodeHeaderWord(formatRecipient(r));
-	parts.push(`From: ${header(message.from)}`);
-	parts.push(`To: ${message.to.map(header).join(", ")}`);
-	if (message.cc.length) {
-		parts.push(`Cc: ${message.cc.map(header).join(", ")}`);
-	}
-	if (message.replyTo?.length)
-		parts.push(`Reply-To: ${message.replyTo.map(header).join(", ")}`);
-	parts.push(`Subject: ${encodeHeaderWord(message.subject)}`);
-	parts.push("MIME-Version: 1.0");
-	const reserved = new Set([
-		"from",
-		"to",
-		"cc",
-		"bcc",
-		"subject",
-		"reply-to",
-		"mime-version",
-		"content-type",
-		"content-transfer-encoding",
-		"content-disposition",
-	]);
-	for (const [k, raw] of Object.entries(headersWithList(message))) {
-		if (reserved.has(k.toLowerCase())) continue;
-		// A PREPARED header is the one case the flag actually decides: this
-		// builds raw MIME, and re-encoding a value that is already exactly what
-		// must go on the wire — a signature, a pre-encoded id — corrupts it.
-		if (!Array.isArray(raw) && typeof raw !== "string") {
-			parts.push(`${stripCrlf(k)}: ${stripCrlf(raw.value)}`);
-			continue;
-		}
-		parts.push(
-			`${stripCrlf(k)}: ${encodeHeaderWord(Array.isArray(raw) ? raw.join(", ") : raw)}`,
-		);
-	}
-
-	const hasAttachments = attachmentsFor(message).length > 0;
-	const mixedBoundary = freshBoundary();
-
-	if (hasAttachments) {
-		parts.push(`Content-Type: multipart/mixed; boundary="${mixedBoundary}"`);
-		parts.push("");
-		parts.push(`--${mixedBoundary}`);
-		appendBodyBlock(parts, message);
-		for (const att of attachmentsFor(message)) {
-			appendAttachmentPart(parts, mixedBoundary, att);
-		}
-		parts.push(`--${mixedBoundary}--`);
-	} else {
-		appendBodyHeadersInline(parts, message);
-	}
-	return parts.join("\r\n");
-}
-
-/**
- * Emit the body block for the `multipart/mixed` first part. Handles three cases:
- *   - both html and text set → `multipart/alternative` wrapping both
- *   - html only → bare `text/html` part
- *   - text only → bare `text/plain` part
- *   - neither → bare `text/plain` empty part (keeps MIME valid when attachments only)
- */
-function appendBodyBlock(parts: string[], message: MailMessage): void {
-	if (message.html && message.text) {
-		const altBoundary = freshBoundary();
-		parts.push(
-			`Content-Type: multipart/alternative; boundary="${altBoundary}"`,
-		);
-		parts.push("");
-		parts.push(`--${altBoundary}`);
-		parts.push("Content-Type: text/plain; charset=UTF-8");
-		parts.push("");
-		parts.push(message.text);
-		parts.push(`--${altBoundary}`);
-		parts.push("Content-Type: text/html; charset=UTF-8");
-		parts.push("");
-		parts.push(message.html);
-		parts.push(`--${altBoundary}--`);
-	} else if (message.html) {
-		parts.push("Content-Type: text/html; charset=UTF-8");
-		parts.push("");
-		parts.push(message.html);
-	} else if (message.text) {
-		parts.push("Content-Type: text/plain; charset=UTF-8");
-		parts.push("");
-		parts.push(message.text);
-	} else {
-		parts.push("Content-Type: text/plain; charset=UTF-8");
-		parts.push("");
-		parts.push("");
-	}
-}
-
-/** No-attachment variant: pack body headers straight onto the outer message. */
-function appendBodyHeadersInline(parts: string[], message: MailMessage): void {
-	if (message.html && message.text) {
-		const altBoundary = freshBoundary();
-		parts.push(
-			`Content-Type: multipart/alternative; boundary="${altBoundary}"`,
-		);
-		parts.push("");
-		parts.push(`--${altBoundary}`);
-		parts.push("Content-Type: text/plain; charset=UTF-8");
-		parts.push("");
-		parts.push(message.text);
-		parts.push(`--${altBoundary}`);
-		parts.push("Content-Type: text/html; charset=UTF-8");
-		parts.push("");
-		parts.push(message.html);
-		parts.push(`--${altBoundary}--`);
-	} else if (message.html) {
-		parts.push("Content-Type: text/html; charset=UTF-8");
-		parts.push("");
-		parts.push(message.html);
-	} else {
-		parts.push("Content-Type: text/plain; charset=UTF-8");
-		parts.push("");
-		parts.push(message.text ?? "");
-	}
-}
-
-function appendAttachmentPart(
-	parts: string[],
-	boundary: string,
-	att: MailAttachment,
-): void {
-	parts.push(`--${boundary}`);
-	const contentType = stripCrlf(att.contentType ?? "application/octet-stream");
-	const quotedName = mimeQuote(att.filename);
-	parts.push(`Content-Type: ${contentType}; name="${quotedName}"`);
-	parts.push("Content-Transfer-Encoding: base64");
-	parts.push(`Content-Disposition: attachment; filename="${quotedName}"`);
-	parts.push("");
-	const buf = Buffer.from(att.content as Buffer | string);
-	const raw64 = buf.toString("base64");
-	for (let i = 0; i < raw64.length; i += 76) {
-		parts.push(raw64.slice(i, i + 76));
-	}
-}
-
-function freshBoundary(): string {
-	return `----ream_ses_${randomBytes(16).toString("hex")}`;
 }
 
 function amzDateNow(): string {

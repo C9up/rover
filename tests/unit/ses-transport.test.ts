@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { createHash, createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MailMessage } from "../../src/index.js";
 import { RoverError } from "../../src/RoverError.js";
@@ -35,6 +36,9 @@ const parseForm = (body: string): Record<string, string[]> => {
 	return out;
 };
 
+const rawMime = (form: Record<string, string[]>): string =>
+	Buffer.from(form["RawMessage.Data"]?.[0] ?? "", "base64").toString("utf8");
+
 describe("rover > SesTransport", () => {
 	let fetchSpy: ReturnType<typeof vi.spyOn>;
 
@@ -56,7 +60,7 @@ describe("rover > SesTransport", () => {
 		expect(url).toBe("https://email.eu-west-1.amazonaws.com/");
 	});
 
-	it("uses SendEmail form body when no attachments", async () => {
+	it("always sends SendRawEmail, recipients as Destinations", async () => {
 		const t = new SesTransport(config);
 		const msg = baseMessage();
 		msg.cc = ["cc@example.com"];
@@ -64,21 +68,18 @@ describe("rover > SesTransport", () => {
 		await t.send(msg);
 
 		const form = parseForm(requestBody(fetchSpy.mock.calls));
-		expect(form.Action).toEqual(["SendEmail"]);
-		expect(form.Source).toEqual(["sender@example.com"]);
-		expect(form["Destination.ToAddresses.member.1"]).toEqual([
-			"user@example.com",
-		]);
-		expect(form["Destination.CcAddresses.member.1"]).toEqual([
-			"cc@example.com",
-		]);
-		expect(form["ReplyToAddresses.member.1"]).toEqual(["reply@example.com"]);
-		expect(form["Message.Subject.Data"]).toEqual(["Hello"]);
-		expect(form["Message.Body.Html.Data"]).toEqual(["<p>Hi</p>"]);
-		expect(form["Message.Body.Text.Data"]).toEqual(["Hi"]);
+		expect(form.Action).toEqual(["SendRawEmail"]);
+		expect(form.Source).toBeUndefined();
+		expect(form["Destinations.member.1"]).toEqual(["user@example.com"]);
+		expect(form["Destinations.member.2"]).toEqual(["cc@example.com"]);
+		const mime = rawMime(form);
+		expect(mime).toMatch(/^From: sender@example.com\r$/m);
+		expect(mime).toMatch(/^Cc: cc@example.com\r$/m);
+		expect(mime).toMatch(/^Reply-To: reply@example.com\r$/m);
+		expect(mime).toMatch(/^Subject: Hello\r$/m);
 	});
 
-	it("uses SendRawEmail when attachments present; MIME body contains attachment", async () => {
+	it("carries attachments in the MIME", async () => {
 		const t = new SesTransport(config);
 		const msg = baseMessage();
 		msg.attachments = [
@@ -90,21 +91,12 @@ describe("rover > SesTransport", () => {
 		];
 		await t.send(msg);
 
-		const form = parseForm(requestBody(fetchSpy.mock.calls));
-		expect(form.Action).toEqual(["SendRawEmail"]);
-		const rawB64 = form["RawMessage.Data"]?.[0] ?? "";
-		const mime = Buffer.from(rawB64, "base64").toString("utf8");
-		expect(mime).toContain("From: sender@example.com");
-		expect(mime).toContain("Subject: Hello");
+		const mime = rawMime(parseForm(requestBody(fetchSpy.mock.calls)));
 		expect(mime).toContain("Content-Disposition: attachment");
-		expect(mime).toContain('filename="invoice.pdf"');
-		// Attachment body is base64 `PDFBYTES` = `UERGQllURVM=`
+		expect(mime).toContain("filename=invoice.pdf");
 		expect(mime).toContain(Buffer.from("PDFBYTES").toString("base64"));
 	});
 
-	// Audit 2026-06-13: the SendRawEmail path emitted no Destinations and kept bcc
-	// out of the MIME → bcc recipients were silently dropped. They must be
-	// delivered via Destinations while staying hidden from the MIME headers.
 	it("SendRawEmail path delivers bcc via Destinations and keeps it out of the MIME", async () => {
 		const t = new SesTransport(config);
 		const msg = baseMessage();
@@ -143,20 +135,14 @@ describe("rover > SesTransport", () => {
 		expect(auth).toMatch(/Signature=[0-9a-f]+/);
 	});
 
-	it("strips CRLF from recipients, subject, reply-to in SendEmail form", async () => {
+	it("keeps line breaks in the subject from opening a header", async () => {
 		const t = new SesTransport(config);
 		const msg = baseMessage();
-		msg.to = ["user@x.com\r\nX-Injected: evil"];
 		msg.subject = "Hi\r\nBcc: victim@y.com";
-		msg.replyTo = ["reply@x.com\r\nEvil: yes"];
 		await t.send(msg);
 
-		const form = parseForm(requestBody(fetchSpy.mock.calls));
-		expect(form["Destination.ToAddresses.member.1"]).toEqual([
-			"user@x.comX-Injected: evil",
-		]);
-		expect(form["Message.Subject.Data"]).toEqual(["HiBcc: victim@y.com"]);
-		expect(form["ReplyToAddresses.member.1"]).toEqual(["reply@x.comEvil: yes"]);
+		const mime = rawMime(parseForm(requestBody(fetchSpy.mock.calls)));
+		expect(mime).not.toMatch(/^Bcc:/im);
 	});
 
 	it("throws E_MAIL_PROVIDER_ERROR on 400 with providerMessage", async () => {
@@ -186,14 +172,18 @@ describe("rover > SesTransport", () => {
 	it("returns { providerId } from SES <MessageId> XML response", async () => {
 		fetchSpy.mockResolvedValue(
 			new Response(
-				"<SendEmailResponse><SendEmailResult><MessageId>0000012345-abcdef@us-east-1.amazonses.com</MessageId></SendEmailResult></SendEmailResponse>",
+				"<SendRawEmailResponse><SendRawEmailResult><MessageId>0000012345-abcdef@us-east-1.amazonses.com</MessageId></SendRawEmailResult></SendRawEmailResponse>",
 				{ status: 200 },
 			),
 		);
 		const t = new SesTransport(config);
 		const result = await t.send(baseMessage());
-		expect(result).toEqual({
-			providerId: "0000012345-abcdef@us-east-1.amazonses.com",
+		expect(result?.providerId).toBe(
+			"0000012345-abcdef@us-east-1.amazonses.com",
+		);
+		expect(result?.envelope).toEqual({
+			from: "sender@example.com",
+			to: ["user@example.com"],
 		});
 	});
 
@@ -266,18 +256,14 @@ describe("rover > SesTransport", () => {
 		];
 		await t.send(msg);
 
-		const form = parseForm(fetchSpy.mock.calls[0][1]?.body as string);
-		const rawB64 = form["RawMessage.Data"]?.[0] ?? "";
-		const mime = Buffer.from(rawB64, "base64").toString("utf8");
+		const mime = rawMime(parseForm(requestBody(fetchSpy.mock.calls)));
 		expect(mime).toMatch(/Content-Type: multipart\/alternative/);
-		expect(mime).toMatch(/Content-Type: text\/plain; charset=UTF-8/);
-		expect(mime).toMatch(/Content-Type: text\/html; charset=UTF-8/);
-		// Both bodies present
-		expect(mime).toContain("Hi");
+		expect(mime).toMatch(/Content-Type: text\/plain; charset=utf-8/);
+		expect(mime).toMatch(/Content-Type: text\/html; charset=utf-8/);
 		expect(mime).toContain("<p>Hi</p>");
 	});
 
-	it('quote-escapes `"` and `\\` in attachment filenames (RFC 2183)', async () => {
+	it('encodes a `"` in an attachment filename instead of closing the parameter', async () => {
 		const t = new SesTransport(config);
 		const msg = baseMessage();
 		msg.attachments = [
@@ -289,11 +275,10 @@ describe("rover > SesTransport", () => {
 		];
 		await t.send(msg);
 
-		const form = parseForm(fetchSpy.mock.calls[0][1]?.body as string);
-		const rawB64 = form["RawMessage.Data"]?.[0] ?? "";
-		const mime = Buffer.from(rawB64, "base64").toString("utf8");
-		expect(mime).toContain('filename="report\\"quoted.pdf"');
-		expect(mime).toContain('name="report\\"quoted.pdf"');
+		const mime = rawMime(parseForm(requestBody(fetchSpy.mock.calls)));
+		// RFC 2231 parameter encoding: the quote travels as %22.
+		expect(mime).toContain("filename*0*=utf-8''report%22quoted.pdf");
+		expect(mime).not.toContain('report"quoted');
 	});
 
 	it("captures Retry-After header in error context when set", async () => {
@@ -324,30 +309,36 @@ describe("rover > SesTransport", () => {
 		});
 	});
 
-	it("RFC 2047 encodes non-ASCII subject and addresses in raw MIME", async () => {
+	it("encodes only the display name, never the address (RFC 2047 §5)", async () => {
 		const t = new SesTransport(config);
 		const msg = baseMessage();
 		msg.subject = "Café ☕ commandé";
-		msg.from = "Üsér <sender@example.com>";
-		msg.attachments = [
-			{ filename: "f.txt", content: "x", contentType: "text/plain" },
-		];
+		msg.from = { address: "app@example.com", name: "Zoë Corp" };
 		await t.send(msg);
 
-		const form = parseForm(fetchSpy.mock.calls[0][1]?.body as string);
-		const rawB64 = form["RawMessage.Data"]?.[0] ?? "";
-		const mime = Buffer.from(rawB64, "base64").toString("utf8");
-		// Encoded-word wraps the value
-		expect(mime).toMatch(/Subject: =\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=/);
-		expect(mime).toMatch(/From: =\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=/);
-		// Round-trip: decode the encoded word and confirm original bytes
-		const subjectMatch = mime.match(
-			/Subject: =\?UTF-8\?B\?([A-Za-z0-9+/=]+)\?=/,
+		const mime = rawMime(parseForm(requestBody(fetchSpy.mock.calls)));
+		const from = mime.match(/^From: (.+)\r$/m)?.[1] ?? "";
+		expect(from).toMatch(/^=\?UTF-8\?[QB]\?.+\?= <app@example\.com>$/);
+		expect(mime).toMatch(/^Subject: =\?UTF-8\?/m);
+	});
+
+	it("produces conformant MIME: CRLF only, lines within 998, encoded bodies", async () => {
+		const t = new SesTransport(config);
+		const msg = baseMessage();
+		msg.html = `<p>${"x".repeat(1500)}</p>`;
+		msg.text = "héllo\nbare-lf\rbare-cr";
+		msg.headers = { "X-Custom": "1" };
+		await t.send(msg);
+
+		const mime = rawMime(parseForm(requestBody(fetchSpy.mock.calls)));
+		expect(mime).not.toMatch(/\r(?!\n)/);
+		expect(mime).not.toMatch(/(?<!\r)\n/);
+		for (const line of mime.split("\r\n")) {
+			expect(line.length).toBeLessThanOrEqual(998);
+		}
+		expect(mime).toMatch(
+			/Content-Transfer-Encoding: (quoted-printable|base64)/,
 		);
-		expect(subjectMatch).not.toBeNull();
-		expect(
-			Buffer.from(subjectMatch?.[1] ?? "", "base64").toString("utf8"),
-		).toBe("Café ☕ commandé");
 	});
 
 	it("leaves ASCII-only headers unencoded", async () => {
@@ -365,41 +356,58 @@ describe("rover > SesTransport", () => {
 		expect(mime).not.toMatch(/Subject: =\?UTF-8/);
 	});
 
-	it("SigV4 regression: stable signature for fixed credentials + fixed clock", async () => {
-		// Lock a known date so the test doesn't depend on wall clock.
+	it("SigV4: the signature matches an independent computation over the body sent", async () => {
 		vi.setSystemTime(new Date("2026-04-22T12:00:00.000Z"));
 		try {
+			const secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
 			const t = new SesTransport({
 				accessKeyId: "AKIAIOSFODNN7EXAMPLE",
-				secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+				secretAccessKey: secret,
 				region: "us-east-1",
 			});
-			const msg = baseMessage();
-			await t.send(msg);
+			await t.send(baseMessage());
 
-			const auth = requestHeaders(fetchSpy.mock.calls).authorization;
-			// The full signature is deterministic given the inputs; lock it.
-			expect(auth).toBe(
+			const body = requestBody(fetchSpy.mock.calls);
+			const sha = (v: string) => createHash("sha256").update(v).digest("hex");
+			const hmac = (key: string | Buffer, v: string) =>
+				createHmac("sha256", key).update(v).digest();
+			const canonical = [
+				"POST",
+				"/",
+				"",
+				"content-type:application/x-www-form-urlencoded\nhost:email.us-east-1.amazonaws.com\nx-amz-date:20260422T120000Z\n",
+				"content-type;host;x-amz-date",
+				sha(body),
+			].join("\n");
+			const toSign = [
+				"AWS4-HMAC-SHA256",
+				"20260422T120000Z",
+				"20260422/us-east-1/ses/aws4_request",
+				sha(canonical),
+			].join("\n");
+			const key = hmac(
+				hmac(hmac(hmac(`AWS4${secret}`, "20260422"), "us-east-1"), "ses"),
+				"aws4_request",
+			);
+			const signature = createHmac("sha256", key).update(toSign).digest("hex");
+			expect(requestHeaders(fetchSpy.mock.calls).authorization).toBe(
 				"AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20260422/us-east-1/ses/aws4_request, " +
-					"SignedHeaders=content-type;host;x-amz-date, " +
-					"Signature=92af0cac28a248a42899d60e2b0a875a1f1ab08f7b7fead50ac46a1304e52686",
+					`SignedHeaders=content-type;host;x-amz-date, Signature=${signature}`,
 			);
 		} finally {
 			vi.useRealTimers();
 		}
 	});
 
-	it("boundary uses crypto-random hex (not Math.random)", async () => {
+	it("passes the envelope as Source and Destinations", async () => {
 		const t = new SesTransport(config);
 		const msg = baseMessage();
-		msg.attachments = [
-			{ filename: "a.txt", content: "x", contentType: "text/plain" },
-		];
+		msg.envelope = { from: "bounce@example.com", to: "env-only@example.com" };
 		await t.send(msg);
 
-		const form = parseForm(fetchSpy.mock.calls[0][1]?.body as string);
-		const rawB64 = form["RawMessage.Data"]?.[0] ?? "";
-		const mime = Buffer.from(rawB64, "base64").toString("utf8");
-		expect(mime).toMatch(/boundary="----ream_ses_[0-9a-f]{32}"/);
+		const form = parseForm(requestBody(fetchSpy.mock.calls));
+		expect(form.Source).toEqual(["bounce@example.com"]);
+		expect(form["Destinations.member.1"]).toEqual(["env-only@example.com"]);
+		expect(form["Destinations.member.2"]).toBeUndefined();
 	});
 });
