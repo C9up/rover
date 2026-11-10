@@ -84,6 +84,7 @@
     "@biomejs/biome": "^2.5.12",
     "@c9up/bay": "^0.2.0",
     "@c9up/helix": "^0.2.0",
+    "@c9up/inker": "^0.1.20",
     "@c9up/ream": "^0.2.25",
     "@types/node": "^22.20.1",
     "@types/nodemailer": "^8.0.1",
@@ -94,11 +95,15 @@
   },
   "peerDependencies": {
     "@c9up/helix": "^0.2.0",
+    "@c9up/inker": "^0.1.20",
     "@c9up/ream": "^0.2.26",
     "ical-generator": ">=8"
   },
   "peerDependenciesMeta": {
     "@c9up/helix": {
+      "optional": true
+    },
+    "@c9up/inker": {
       "optional": true
     },
     "@c9up/ream": {
