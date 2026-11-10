@@ -5,20 +5,51 @@
 //
 // Per cerebrum 2026-04-15 there is NO JS fallback. If the binary fails to load,
 // consumers get a typed `RoverError`. Zero `as` / `any` per `feedback_no_any_types`
-// — every boundary is narrowed with a `Reflect.get` type guard.
+// — every boundary is narrowed with a type guard.
 
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
 import { RoverError } from "../RoverError.js";
 import {
+	hasFunctions,
+	loadNativeBinary,
 	muslHint,
-	nativeBinarySuffix,
 	supportedTargets,
 } from "../vendor/nativeBinary.js";
 
-function platformSuffix(): string {
-	// The table is shared; the refusal is rover's, with rover's code on it.
-	const suffix = nativeBinarySuffix();
+export type NativeRoverIr = import("../native/generated.js").RoverIr;
+
+/**
+ * What this package calls on the engine, typed as the Rust declares it.
+ *
+ * Derived from `../native/generated.js` — written by `pnpm build:napi-types`
+ * from napi-derive's own `type-def` output — rather than restated here, where
+ * nothing would notice a `pub fn` gaining a parameter or changing its return.
+ * The guard below checks the same calls at load: a declaration says what the
+ * Rust promises, not what a stale binary shipped.
+ */
+const NATIVE_CALLS = ["compile", "renderIr"] as const;
+
+type NativeExports = Pick<
+	typeof import("../native/generated.js"),
+	(typeof NATIVE_CALLS)[number]
+>;
+
+function isNativeExports(value: unknown): value is NativeExports {
+	return hasFunctions(value, NATIVE_CALLS);
+}
+
+let cachedNative: NativeExports | undefined;
+
+export function getNative(): NativeExports {
+	if (cachedNative !== undefined) return cachedNative;
+
+	// The resolution and the export check are shared; the refusals are rover's,
+	// with rover's code on them.
+	const attempt = loadNativeBinary(isNativeExports);
+	if (attempt.loaded) {
+		cachedNative = attempt.binary;
+		return cachedNative;
+	}
+	const { suffix, cause } = attempt;
 	if (suffix === undefined) {
 		throw new RoverError(
 			"E_MAIL_TEMPLATE_NAPI_REQUIRED",
@@ -28,77 +59,14 @@ function platformSuffix(): string {
 			},
 		);
 	}
-	return suffix;
-}
-
-/** Opaque handle to a compiled template IR (Rust `RoverIr`). */
-export type NativeRoverIr = import("../native/generated.js").RoverIr;
-
-/**
- * The engine's surface, as the Rust declares it.
- *
- * Derived from `../native/generated.js` — written by `pnpm build:napi-types`
- * from napi-derive's own `type-def` output — rather than restated here, where
- * nothing would notice a `pub fn` gaining a parameter or changing its return.
- * The runtime guard below still checks the three exports are actually there:
- * a declaration says what the Rust promises, not what a stale binary shipped.
- */
-type NativeExports = typeof import("../native/generated.js");
-
-function isNativeExports(value: unknown): value is NativeExports {
-	if (value === null || typeof value !== "object") return false;
-	return (
-		typeof Reflect.get(value, "engineVersion") === "function" &&
-		typeof Reflect.get(value, "compile") === "function" &&
-		typeof Reflect.get(value, "renderIr") === "function"
+	const causeMessage = cause instanceof Error ? cause.message : String(cause);
+	throw new RoverError(
+		"E_MAIL_TEMPLATE_NAPI_REQUIRED",
+		`@c9up/rover native binary 'index.${suffix}.node' not found, failed to load, or is stale — run 'pnpm --filter @c9up/rover build:napi' to build it.${muslHint()} Cause: ${causeMessage}`,
+		{
+			hint: "Run 'pnpm --filter @c9up/rover build:napi' to compile the native template engine.",
+		},
 	);
-}
-
-let cachedNative: NativeExports | undefined;
-
-export function getNative(): NativeExports {
-	if (cachedNative !== undefined) return cachedNative;
-
-	const require = createRequire(import.meta.url);
-	const here = fileURLToPath(import.meta.url);
-	// `here` is `…/packages/rover/src/templating/loadNapi.ts` (or `dist/…`). The
-	// `.node` lives at the package root `…/packages/rover/index.<suffix>.node`,
-	// two levels up from `src/templating` / `dist/templating`.
-	const suffix = platformSuffix();
-	const candidate = `../../index.${suffix}.node`;
-	let loaded: unknown;
-	let lastErr: unknown;
-	try {
-		loaded = require(candidate);
-	} catch (err) {
-		lastErr = err;
-	}
-	if (loaded === undefined) {
-		const causeMessage =
-			lastErr instanceof Error ? lastErr.message : String(lastErr);
-		// The prebuilt linux binaries target glibc (`-gnu`). On musl hosts (Alpine
-		// containers) the `-gnu` binary fails to dlopen with a libc symbol error —
-		// surface that explicitly rather than only pointing at the build step.
-		const musl = muslHint();
-		throw new RoverError(
-			"E_MAIL_TEMPLATE_NAPI_REQUIRED",
-			`@c9up/rover native binary 'index.${suffix}.node' not found or failed to load near ${here} — run 'pnpm --filter @c9up/rover build:napi' to build it.${musl} Cause: ${causeMessage}`,
-			{
-				hint: "Run 'pnpm --filter @c9up/rover build:napi' to compile the native template engine.",
-			},
-		);
-	}
-	if (!isNativeExports(loaded)) {
-		throw new RoverError(
-			"E_MAIL_TEMPLATE_NAPI_REQUIRED",
-			"@c9up/rover native binary loaded but missing expected exports (engineVersion / compile / renderIr). Rebuild with 'pnpm --filter @c9up/rover build:napi'.",
-			{
-				hint: "The native binary is stale — rebuild with 'pnpm --filter @c9up/rover build:napi'.",
-			},
-		);
-	}
-	cachedNative = loaded;
-	return cachedNative;
 }
 
 /**
