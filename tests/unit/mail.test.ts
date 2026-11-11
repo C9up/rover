@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	Mail,
 	Mailer,
@@ -7,26 +7,31 @@ import {
 } from "../../src/index.js";
 
 describe("rover > Mail", () => {
-	it("creates a mail instance with log transport", () => {
-		const mail = new Mail({
-			default: "log",
-			from: "test@example.com",
-			transports: { log: { transport: "log" } },
-		});
-		expect(mail).toBeDefined();
-	});
+	it("sends through a log transport declared under `transports`", async () => {
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		try {
+			const mail = new Mail({
+				default: "log",
+				from: "test@example.com",
+				transports: { log: { transport: "log" } },
+			});
+			const response = await mail.send((message) => {
+				message.to("user@example.com");
+				message.subject("Test");
+				message.text("Hello");
+			});
 
-	it("sends via log transport without throwing", async () => {
-		const mail = new Mail({
-			default: "log",
-			from: "test@example.com",
-			transports: { log: { transport: "log" } },
-		});
-		await mail.send((message) => {
-			message.to("user@example.com");
-			message.subject("Test");
-			message.text("Hello");
-		});
+			expect(log.mock.calls.map((call) => String(call[0]))).toEqual([
+				'[MAIL] To: ["user@example.com"] | Subject: "Test"',
+			]);
+			expect(response.messageId).toMatch(/^[0-9a-f]{32}$/);
+			expect(response.envelope).toEqual({
+				from: "test@example.com",
+				to: ["user@example.com"],
+			});
+		} finally {
+			log.mockRestore();
+		}
 	});
 
 	it("refuses at construction a `default` that names no mailer", () => {
