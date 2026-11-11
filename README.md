@@ -10,16 +10,33 @@ Mail transport for Ream — SMTP, log, and pluggable transports (Mailgun, SendGr
 ```ts
 import { Mail } from '@c9up/rover'
 import '@c9up/rover/transports/mailgun' // opt-in side-effect registration
+import env from '#start/env'
 
 const mail = new Mail({
   default: 'mailgun',
   from: 'noreply@acme.com',
   mailers: {
-    mailgun: { transport: 'mailgun', apiKey: process.env.MAILGUN_KEY!, domain: 'mg.acme.com' },
+    mailgun: { transport: 'mailgun', apiKey: env.get('MAILGUN_KEY'), domain: 'mg.acme.com' },
   },
 })
 
 await mail.send((m) => m.to('user@example.com').subject('Welcome').html('<p>Hi</p>'))
+```
+
+Every secret on this page is read through `env.get()` and declared in
+`start/env.ts`, so a missing key stops the boot instead of reaching a mailer
+or a webhook handler as `undefined`:
+
+```ts
+// start/env.ts
+import { Env } from '@c9up/ream'
+
+export default await Env.create(new URL('../', import.meta.url), {
+  MAILGUN_KEY: Env.schema.string(),
+  MAILGUN_SIGNING_KEY: Env.schema.string(),
+  SENDGRID_WEBHOOK_PUBLIC_KEY: Env.schema.string(),
+  RESEND_WEBHOOK_SECRET: Env.schema.string(),
+})
 ```
 
 ## Webhooks
@@ -29,13 +46,14 @@ Providers push delivery events (`delivered`, `bounced`, `failed`) to a URL you c
 ```ts
 import { createMailgunWebhookHandler } from '@c9up/rover/webhooks/mailgun'
 import { Emitter } from '@c9up/ream/events'
+import env from '#start/env'
 
 const emitter = await app.container.resolve(Emitter)
 
 router.post(
   '/webhooks/mailgun',
   createMailgunWebhookHandler({
-    signingKey: process.env.MAILGUN_SIGNING_KEY!,
+    signingKey: env.get('MAILGUN_SIGNING_KEY'),
     emitter,
     // maxAgeSeconds: 300 (default) — rejects replayed-old signatures
     // tokenStore: a shared store when several instances receive webhooks
@@ -54,12 +72,12 @@ import { createSendGridWebhookHandler } from '@c9up/rover/webhooks/sendgrid'
 import { createResendWebhookHandler } from '@c9up/rover/webhooks/resend'
 
 router.post('/webhooks/sendgrid', createSendGridWebhookHandler({
-  publicKey: process.env.SENDGRID_WEBHOOK_PUBLIC_KEY!,
+  publicKey: env.get('SENDGRID_WEBHOOK_PUBLIC_KEY'),
   emitter,
 }))
 
 router.post('/webhooks/resend', createResendWebhookHandler({
-  secret: process.env.RESEND_WEBHOOK_SECRET!, // accepts both `whsec_...` and raw base64
+  secret: env.get('RESEND_WEBHOOK_SECRET'), // accepts both `whsec_...` and raw base64
   emitter,
 }))
 ```
