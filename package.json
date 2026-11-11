@@ -119,8 +119,7 @@
     "stubs",
     "README.md",
     "LICENSE",
-    "index.*.node",
-    "scripts"
+    "index.*.node"
   ],
   "publishConfig": {
     "main": "./dist/index.js",
