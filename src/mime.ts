@@ -11,6 +11,8 @@ import nodemailer, { type Transport } from "nodemailer";
 import type Mail from "nodemailer/lib/mailer/index.js";
 import { recipientAddress, toNodemailerAddress } from "./format.js";
 import {
+	assertCompiledParts,
+	type CalendarEvent,
 	type MailMessage,
 	withCanonicalLineEndings,
 } from "./MessageBuilder.js";
@@ -23,6 +25,9 @@ export interface MailResponseEnvelope {
 
 /** The nodemailer mail options a message stands for. */
 export function nodemailerOptions(message: MailMessage): Mail.Options {
+	// Every part holds bytes before nodemailer sees it: it would read a
+	// content `{ path }` from disk and fetch an `{ href }`.
+	assertCompiledParts(message);
 	return {
 		// Address objects, which nodemailer never re-splits: a string would be
 		// parsed as an address list.
@@ -51,7 +56,7 @@ export function nodemailerOptions(message: MailMessage): Mail.Options {
 		// nodemailer renders `List-*` itself: brackets the URLs, escapes and
 		// encodes the comments, folds the line.
 		list: message.list,
-		icalEvent: message.icalEvent,
+		icalEvent: message.icalEvent && calendarPart(message.icalEvent),
 		attachments: message.attachments.length
 			? message.attachments.map((att) => ({
 					filename: att.filename,
@@ -64,6 +69,15 @@ export function nodemailerOptions(message: MailMessage): Mail.Options {
 				}))
 			: undefined,
 	};
+}
+
+/** The invitation as nodemailer gets it: its content, never a path or URL. */
+function calendarPart(ical: CalendarEvent): Mail.IcalAttachment {
+	const part: Mail.IcalAttachment = { content: ical.content };
+	if (ical.method !== undefined) part.method = ical.method;
+	if (ical.filename !== undefined) part.filename = ical.filename;
+	if (ical.encoding !== undefined) part.encoding = ical.encoding;
+	return part;
 }
 
 /**
@@ -116,6 +130,8 @@ export interface ComposedMime {
  * SMTP client, as the upstream API transports do).
  */
 export async function composeMime(message: MailMessage): Promise<ComposedMime> {
+	// Before the line-ending pass, which reads the invitation's content.
+	assertCompiledParts(message);
 	let composed: ComposedMime | undefined;
 	const capture: Transport<undefined> = {
 		name: "rover-mime",

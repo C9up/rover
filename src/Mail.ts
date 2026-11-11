@@ -11,6 +11,7 @@ import {
 } from "./format.js";
 import { field, numberField, stringField } from "./guards.js";
 import {
+	assertCompiledParts,
 	assertEnvelope,
 	assertHeaders,
 	type MailAttachment,
@@ -1086,6 +1087,7 @@ function validateMailMessage(message: MailMessage): void {
 	}
 	if (message.envelope !== undefined) assertEnvelope(message.envelope);
 	assertHeaders(message.headers);
+	assertCompiledParts(message);
 	if (recipients === 0) {
 		throw new RoverError(
 			"E_MAIL_INVALID_MESSAGE",

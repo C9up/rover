@@ -189,12 +189,13 @@ describe("rover > calendar invitations", () => {
 		);
 	});
 
-	it("says so rather than drop an href-only invitation on an HTTP provider", async () => {
-		const built = await message()
-			.icalEventFromUrl("https://x.co/e.ics")
-			.build();
+	it("says so rather than drop an invitation that never got its content", async () => {
+		const built = await message().build();
+		built.icalEvent = { method: "REQUEST" };
 
-		expect(() => attachmentsFor(built)).toThrow(/only supported by the SMTP/);
+		expect(() => attachmentsFor(built)).toThrow(
+			expect.objectContaining({ code: "E_MAIL_INVALID_MESSAGE" }),
+		);
 	});
 
 	it("leaves the attachment list alone when there is no invitation", async () => {

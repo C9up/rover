@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
 	assertAddress,
 	assertHeaderName,
+	assertHeaderSafe,
 	assertHeaderValue,
 	assertRecipient,
 	formatRecipient,
@@ -126,8 +127,8 @@ export interface CalendarBuilder {
 export type CalendarEventCallback = (calendar: CalendarBuilder) => void;
 
 /**
- * A calendar invitation. Exactly one source: inline `content`, a `path` read at
- * {@link MessageBuilder.build} time, or an `href` the provider fetches.
+ * A calendar invitation. Exactly one source: inline `content`, or a `path` or
+ * `href` that {@link MessageBuilder.build} reads into `content` and drops.
  */
 export interface CalendarEvent extends CalendarEventOptions {
 	content?: string;
@@ -214,15 +215,12 @@ export function attachmentsFor(message: MailMessage): MailAttachment[] {
 	const ical = message.icalEvent;
 	if (ical === undefined) return message.attachments;
 	if (ical.content === undefined) {
-		// `icalEventFromUrl` leaves only an href, which nodemailer fetches for
-		// SMTP. An HTTP provider takes the bytes, and silently dropping the
-		// invitation would be worse than saying so.
-		throw new RoverError(
-			"E_ICAL_HREF_UNSUPPORTED",
-			"icalEventFromUrl() is only supported by the SMTP transport, which fetches the URL itself.",
-			{
-				hint: "Fetch the ICS yourself and pass it to icalEvent(contents), or use icalEventFromFile().",
-			},
+		// build() reads every invitation into `content`; only a message that
+		// never went through it can lack one, and dropping the invitation
+		// silently would be worse than saying so.
+		throw invalidPart(
+			"The calendar invitation has no content.",
+			"Build the message with MessageBuilder.build(), which reads icalEventFromFile() and icalEventFromUrl().",
 		);
 	}
 	const method = ical.method ?? "PUBLISH";
@@ -271,6 +269,100 @@ export function withCanonicalLineEndings(message: MailMessage): MailMessage {
 				? ical
 				: { ...ical, content: canonicalLineEndings(ical.content) },
 	};
+}
+
+function invalidPart(message: string, hint?: string): RoverError {
+	return new RoverError(
+		"E_MAIL_INVALID_MESSAGE",
+		message,
+		hint === undefined ? undefined : { hint },
+	);
+}
+
+/** An optional string field of a part, refused when it could break a header. */
+function optionalHeaderText(part: object, key: string, what: string): void {
+	const value: unknown = Reflect.get(part, key);
+	if (value === undefined) return;
+	if (typeof value !== "string") {
+		throw invalidPart(`The ${what} must be a string.`);
+	}
+	assertHeaderSafe(value, what);
+}
+
+/**
+ * Check the parts of a message that may not have come through the builder (a
+ * queue payload, a `sendCompiled()` argument): every attachment and the
+ * invitation hold their bytes, and every value that ends up in a part or
+ * threading header is free of line breaks.
+ *
+ * nodemailer reads a content object `{ path }` from disk and fetches
+ * `{ href }` or an invitation's `path`/`href`, then mails the bytes. A
+ * compiled message is data, possibly from a store someone else can write
+ * to, so it may name bytes and never a place to read them from.
+ */
+export function assertCompiledParts(message: MailMessage): void {
+	const attachments: unknown = message.attachments;
+	if (!Array.isArray(attachments)) {
+		throw invalidPart("Mail message `attachments` must be an array");
+	}
+	for (const att of attachments) {
+		if (typeof att !== "object" || att === null) {
+			throw invalidPart("Each attachment must be an object");
+		}
+		const content: unknown = Reflect.get(att, "content");
+		if (typeof content !== "string" && !Buffer.isBuffer(content)) {
+			throw invalidPart(
+				"An attachment's content must be a Buffer or a string.",
+				"A compiled message carries the bytes; attach a file with attach() before compiling it.",
+			);
+		}
+		const filename: unknown = Reflect.get(att, "filename");
+		if (typeof filename !== "string") {
+			throw invalidPart("An attachment's filename must be a string.");
+		}
+		assertHeaderSafe(filename, "attachment filename");
+		optionalHeaderText(att, "contentType", "attachment content type");
+		optionalHeaderText(att, "cid", "attachment cid");
+		optionalHeaderText(att, "contentDisposition", "attachment disposition");
+		optionalHeaderText(att, "encoding", "attachment encoding");
+		const headers: unknown = Reflect.get(att, "headers");
+		if (headers !== undefined) assertHeaders(headers);
+	}
+	const ical: unknown = message.icalEvent;
+	if (ical !== undefined) {
+		if (typeof ical !== "object" || ical === null) {
+			throw invalidPart("Mail message `icalEvent` must be an object");
+		}
+		if (
+			Reflect.get(ical, "path") !== undefined ||
+			Reflect.get(ical, "href") !== undefined
+		) {
+			throw invalidPart(
+				"A compiled calendar invitation carries its content, not a path or a URL.",
+				"Build the message with icalEventFromFile() / icalEventFromUrl(): build() reads it.",
+			);
+		}
+		if (typeof Reflect.get(ical, "content") !== "string") {
+			throw invalidPart("A calendar invitation's content must be a string.");
+		}
+		optionalHeaderText(ical, "method", "calendar method");
+		optionalHeaderText(ical, "filename", "calendar filename");
+		optionalHeaderText(ical, "encoding", "calendar encoding");
+	}
+	for (const [key, name] of [
+		["messageId", "Message-ID"],
+		["inReplyTo", "In-Reply-To"],
+	] as const) {
+		const value: unknown = message[key];
+		if (value !== undefined) assertHeaderValue(value, name);
+	}
+	const references: unknown = message.references;
+	if (references !== undefined) {
+		if (!Array.isArray(references)) {
+			throw invalidPart("Mail message `references` must be an array");
+		}
+		for (const id of references) assertHeaderValue(id, "References");
+	}
 }
 
 /**
@@ -346,6 +438,41 @@ async function readAttachment(path: string, label: string): Promise<Buffer> {
 			},
 		);
 	}
+}
+
+/** Ceiling on fetching an `icalEventFromUrl()` invitation. */
+const CALENDAR_FETCH_TIMEOUT_MS = 30_000;
+
+/**
+ * Fetch an `icalEventFromUrl()` invitation at build time.
+ *
+ * NAMED DEVIATION: upstream hands the URL to nodemailer, which fetches it when
+ * the SMTP transport sends. Fetched here instead, so the built message holds
+ * the bytes: every transport can carry it, and a queued message names no URL
+ * for the worker to fetch. Only http(s), as nodemailer's fetcher.
+ */
+async function fetchCalendar(url: string): Promise<string> {
+	const fail = (reason: string) =>
+		new RoverError(
+			"E_ATTACHMENT_UNREADABLE",
+			`Could not fetch the calendar event from "${url}": ${reason}`,
+			{
+				hint: "Give an https: URL that serves the ICS, or pass it to icalEvent(contents).",
+			},
+		);
+	if (!/^https?:\/\//i.test(url) || !URL.canParse(url)) {
+		throw fail("only http: and https: URLs are fetched");
+	}
+	let res: Response;
+	try {
+		res = await fetch(url, {
+			signal: AbortSignal.timeout(CALENDAR_FETCH_TIMEOUT_MS),
+		});
+	} catch (err) {
+		throw fail(err instanceof Error ? err.message : String(err));
+	}
+	if (!res.ok) throw fail(`the server answered ${res.status}`);
+	return res.text();
 }
 
 /** Every URL inside a `List-*` value, whatever nesting form it was written in. */
@@ -1270,7 +1397,7 @@ export class MessageBuilder {
 		return this;
 	}
 
-	/** Calendar invitation the transport fetches from a URL (AdonisJS `icalEventFromUrl`). */
+	/** Calendar invitation fetched from a URL at {@link build} time (AdonisJS `icalEventFromUrl`). */
 	icalEventFromUrl(url: string, options?: CalendarEventOptions): this {
 		this.#msg.icalEvent = { ...options, href: url };
 		return this;
@@ -1406,11 +1533,21 @@ export class MessageBuilder {
 				attachment.filename,
 			);
 		}
+		// The invitation leaves build() as its bytes alone: a built message is
+		// what gets queued, and a path or URL in it would be read by whichever
+		// worker dequeues it.
 		const ical = this.#msg.icalEvent;
-		if (ical?.path !== undefined && ical.content === undefined) {
-			ical.content = (
-				await readAttachment(ical.path, "the calendar event")
-			).toString("utf8");
+		if (ical !== undefined) {
+			const { path, href, ...rest } = ical;
+			let content = rest.content;
+			if (content === undefined && path !== undefined) {
+				content = (await readAttachment(path, "the calendar event")).toString(
+					"utf8",
+				);
+			} else if (content === undefined && href !== undefined) {
+				content = await fetchCalendar(href);
+			}
+			this.#msg.icalEvent = { ...rest, content };
 		}
 		// `List-*` stay structured in `list`: SMTP hands them to nodemailer,
 		// which escapes and folds them, and the other transports render them
