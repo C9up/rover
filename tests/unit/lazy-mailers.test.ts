@@ -84,6 +84,20 @@ describe("rover > mailers are built on first use, then cached (AdonisJS MailMana
 		expect(built).toBe(2);
 	});
 
+	it.each(["constructor", "toString", "hasOwnProperty", "__proto__"])(
+		"refuses the inherited name %s as a transport type at construction",
+		(transport) => {
+			expect(
+				() =>
+					new Mail({
+						default: "x",
+						from: "app@example.com",
+						mailers: { x: { transport } },
+					}),
+			).toThrow(expect.objectContaining({ code: "E_MAIL_UNKNOWN_TRANSPORT" }));
+		},
+	);
+
 	it("still refuses an unknown transport type and an undeclared default at construction", () => {
 		expect(
 			() =>

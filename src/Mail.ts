@@ -445,10 +445,15 @@ export type MailTransportFactory = (
 	config: Record<string, unknown>,
 ) => MailTransport;
 
-const transportFactories: Record<string, MailTransportFactory> = {
-	smtp: (config) => new SmtpTransport(config),
-	log: (config) => new LogTransport(config),
-};
+/**
+ * A Map, not an object literal: a config naming `constructor` or `toString`
+ * would find the inherited function on an object and build a "transport"
+ * with no `send`, failing on the first email instead of at boot.
+ */
+const transportFactories = new Map<string, MailTransportFactory>([
+	["smtp", (config) => new SmtpTransport(config)],
+	["log", (config) => new LogTransport(config)],
+]);
 
 /**
  * Register a custom transport factory globally.
@@ -461,7 +466,7 @@ export function registerTransport(
 	name: string,
 	factory: MailTransportFactory,
 ): void {
-	transportFactories[name] = factory;
+	transportFactories.set(name, factory);
 }
 
 /**
@@ -524,7 +529,7 @@ export class Mail {
 		// gets both, and `mailers` wins on a key the two share.
 		const declared = { ...config.transports, ...config.mailers };
 		for (const [name, transportConfig] of Object.entries(declared)) {
-			const factory = transportFactories[transportConfig.transport];
+			const factory = transportFactories.get(transportConfig.transport);
 			if (!factory) {
 				throw new RoverError(
 					"E_MAIL_UNKNOWN_TRANSPORT",
