@@ -90,7 +90,7 @@ function isNapiErrorPayload(value: unknown): value is NapiErrorPayload {
 const CODE_HINTS: Readonly<Record<string, string>> = {
 	E_MAIL_TEMPLATE_SYNTAX:
 		"Check the template grammar: {{ var }}, {{{ raw }}}, {{#if x}}...{{/if}}, {{> partial}}.",
-	MAIL_TEMPLATE_RECURSION:
+	E_MAIL_TEMPLATE_RECURSION:
 		"Break the cycle — a template cannot include itself (directly or via partials).",
 	E_MAIL_TEMPLATE_NOT_FOUND:
 		"Create the referenced partial file or remove the {{> name}} reference.",

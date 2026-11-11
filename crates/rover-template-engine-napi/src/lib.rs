@@ -93,7 +93,7 @@ pub fn compile(source: String) -> Result<RoverIr> {
 
 /// Render a compiled IR against `data` (a JSON string), resolving `{{> name}}`
 /// partials from the pre-resolved `partials` map. Render-time recursion ->
-/// `MAIL_TEMPLATE_RECURSION`.
+/// `E_MAIL_TEMPLATE_RECURSION`.
 ///
 /// `data` crosses as a JSON STRING (the TS facade calls `JSON.stringify`), not
 /// as an object graph: `JSON.stringify` is own-enumerable-only, which preserves

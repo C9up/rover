@@ -31,7 +31,7 @@ impl ErrorCode {
     pub fn as_str(self) -> &'static str {
         match self {
             ErrorCode::Syntax => "E_MAIL_TEMPLATE_SYNTAX",
-            ErrorCode::Recursion => "MAIL_TEMPLATE_RECURSION",
+            ErrorCode::Recursion => "E_MAIL_TEMPLATE_RECURSION",
             ErrorCode::NotFound => "E_MAIL_TEMPLATE_NOT_FOUND",
         }
     }
@@ -67,7 +67,7 @@ mod tests {
     #[test]
     fn code_strings_are_byte_stable() {
         assert_eq!(ErrorCode::Syntax.as_str(), "E_MAIL_TEMPLATE_SYNTAX");
-        assert_eq!(ErrorCode::Recursion.as_str(), "MAIL_TEMPLATE_RECURSION");
+        assert_eq!(ErrorCode::Recursion.as_str(), "E_MAIL_TEMPLATE_RECURSION");
         assert_eq!(ErrorCode::NotFound.as_str(), "E_MAIL_TEMPLATE_NOT_FOUND");
     }
 }

@@ -8,7 +8,7 @@
 //! detected HERE via a `visited` name set (insert before descending into a
 //! partial, remove after) so that:
 //!   - a cyclic partial chain that is actually rendered raises
-//!     `MAIL_TEMPLATE_RECURSION` (self-recursion + mutual `a -> b -> a`), and
+//!     `E_MAIL_TEMPLATE_RECURSION` (self-recursion + mutual `a -> b -> a`), and
 //!   - a `{{> loop}}` behind a falsy `{{#if}}` never renders, so never errors.
 //!
 //! The backtracking (remove-after) gives path semantics: the same partial
@@ -275,7 +275,7 @@ mod tests {
         let mut partials = HashMap::new();
         partials.insert("loop".to_string(), compile("body {{> loop}}").unwrap());
         let err = render_ir(&root, &json!({}), &partials).unwrap_err();
-        assert_eq!(err.code.as_str(), "MAIL_TEMPLATE_RECURSION");
+        assert_eq!(err.code.as_str(), "E_MAIL_TEMPLATE_RECURSION");
     }
 
     #[test]
@@ -285,7 +285,7 @@ mod tests {
         partials.insert("b".to_string(), compile("B {{> a}}").unwrap());
         partials.insert("a".to_string(), compile("A {{> b}}").unwrap());
         let err = render_ir(&root, &json!({}), &partials).unwrap_err();
-        assert_eq!(err.code.as_str(), "MAIL_TEMPLATE_RECURSION");
+        assert_eq!(err.code.as_str(), "E_MAIL_TEMPLATE_RECURSION");
     }
 
     #[test]

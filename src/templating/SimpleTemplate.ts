@@ -10,7 +10,7 @@ import { getNative, type NativeRoverIr, toReamError } from "./loadNapi.js";
 // resolution (incl. the `viewsRoot` traversal guard), the FS read, the
 // compiled-IR cache, and the transitive partial pre-resolution (D55.2.1). The
 // engine never reads disk (ADR-007). Render-time `{{> partial}}` recursion is
-// detected Rust-side (D55.2.2) and surfaces here as `MAIL_TEMPLATE_RECURSION`.
+// detected Rust-side (D55.2.2) and surfaces here as `E_MAIL_TEMPLATE_RECURSION`.
 
 let viewsRoot = "resources/views/emails";
 // Resolved-absolute-path -> compiled Rust IR handle. Content-blind: an entry is
@@ -177,7 +177,7 @@ async function loadIr(viewPath: string, root: string): Promise<NativeRoverIr> {
  * Transitively pre-resolve every `{{> name}}` partial reachable from `rootIr`
  * into a `name -> IR handle` map (D55.2.1). Stops re-descending once a name is
  * mapped, so a cyclic partial graph terminates here WITHOUT erroring — the
- * actual `MAIL_TEMPLATE_RECURSION` is raised Rust-side only when the cycle is
+ * actual `E_MAIL_TEMPLATE_RECURSION` is raised Rust-side only when the cycle is
  * really rendered (D55.2.2). Partials read here are cached by resolved path
  * (content-blind), exactly as the pre-migration recursive `renderFile` did.
  */

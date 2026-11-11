@@ -153,7 +153,7 @@ describe("rover > SimpleTemplate", () => {
 			await expect(renderFile("welcome", {})).resolves.toBe("hi");
 		});
 
-		it("detects partial self-recursion and throws MAIL_TEMPLATE_RECURSION", async () => {
+		it("detects partial self-recursion and throws E_MAIL_TEMPLATE_RECURSION", async () => {
 			mkdirSync(path.join(root, "partials"));
 			writeFileSync(
 				path.join(root, "partials", "loop.html"),
@@ -161,7 +161,7 @@ describe("rover > SimpleTemplate", () => {
 			);
 
 			await expect(renderFile("partials/loop", {})).rejects.toMatchObject({
-				code: "MAIL_TEMPLATE_RECURSION",
+				code: "E_MAIL_TEMPLATE_RECURSION",
 			});
 		});
 
@@ -171,7 +171,7 @@ describe("rover > SimpleTemplate", () => {
 			writeFileSync(path.join(root, "partials", "b.html"), "B {{> a}}");
 
 			await expect(renderFile("partials/a", {})).rejects.toMatchObject({
-				code: "MAIL_TEMPLATE_RECURSION",
+				code: "E_MAIL_TEMPLATE_RECURSION",
 			});
 		});
 
