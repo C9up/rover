@@ -102,8 +102,7 @@ await mail.sendLater((m) => m.to('user@acme.com').subject('Welcome').html('<p>Hi
 ```
 
 Without a `QueueManager` wired, `sendLater` falls back to an in-memory
-messenger (immediate microtask dispatch) — matching `@adonisjs/mail`'s
-`MemoryQueueMessenger`. It never throws for a missing queue.
+messenger (immediate microtask dispatch). It never throws for a missing queue.
 
 ## Testing
 
