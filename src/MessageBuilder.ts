@@ -153,7 +153,10 @@ export interface MailAttachment {
 	path?: string;
 	/** `Content-Disposition`, when it is not the default for the form used. */
 	contentDisposition?: "attachment" | "inline";
-	/** `Content-Transfer-Encoding` for this part. */
+	/**
+	 * How a string `content` is encoded (nodemailer `encoding`): `base64`,
+	 * `hex`, `latin1`... The bytes sent are the decoded ones.
+	 */
 	encoding?: string;
 	/** Extra part headers. */
 	headers?: Record<string, string | string[]>;
@@ -532,12 +535,87 @@ export function headersForApi(
 	return out;
 }
 
-/** An attachment's bytes, whichever form they were given in. */
+/**
+ * An attachment's bytes, whichever form they were given in. A string is
+ * decoded by the attachment's `encoding`, normalised the way nodemailer
+ * normalises it (`Base-64` is `base64`), so a JSON API gets the same bytes the
+ * MIME transports put on the wire.
+ */
 export function attachmentBytes(attachment: MailAttachment): Buffer {
 	const { content } = attachment;
-	return typeof content === "string"
-		? Buffer.from(content)
-		: Buffer.from(content);
+	if (typeof content !== "string") return Buffer.from(content);
+	const encoding = (attachment.encoding ?? "utf8")
+		.toLowerCase()
+		.replace(/[-_\s]/g, "");
+	if (encoding === "usascii" || encoding === "ascii") {
+		return Buffer.from(content, "utf8");
+	}
+	if (!Buffer.isEncoding(encoding)) {
+		throw new RoverError(
+			"E_MAIL_INVALID_MESSAGE",
+			`Attachment "${attachment.filename}" has an unknown encoding ${JSON.stringify(attachment.encoding)}`,
+			{
+				hint: "Use base64, hex, latin1 or utf8, or pass the bytes as a Buffer.",
+			},
+		);
+	}
+	return Buffer.from(content, encoding);
+}
+
+/** What a provider JSON API can say about one attachment part. */
+export interface ApiAttachmentSupport {
+	/** A content id, so `<img src="cid:...">` resolves to the part. */
+	contentId: boolean;
+	/** An explicit disposition, so a part without a cid can be inline. */
+	disposition: boolean;
+}
+
+/**
+ * Refuse a message carrying something a provider JSON API has no field for,
+ * rather than send it without: a watch body, per-part headers, an inline
+ * image the API can only send as a plain attachment. The raw-MIME transports
+ * (SMTP, Mailgun, SES, SparkPost) carry all of them.
+ */
+export function assertApiCarries(
+	message: MailMessage,
+	provider: string,
+	support: ApiAttachmentSupport,
+): void {
+	const unsupported = (field: string, hint: string) =>
+		new RoverError(
+			"E_MAIL_FIELD_UNSUPPORTED",
+			`The ${provider} API cannot carry ${field}.`,
+			{ hint, context: { provider, field } },
+		);
+	const mimeHint =
+		"Send this message through an SMTP, Mailgun, SES or SparkPost mailer, which send the full MIME message.";
+	if (message.watchHtml) {
+		throw unsupported("watchHtml", `${mimeHint} Or drop watch().`);
+	}
+	for (const att of message.attachments) {
+		if (att.headers !== undefined && Object.keys(att.headers).length > 0) {
+			throw unsupported(
+				"attachments[].headers",
+				`${mimeHint} Or drop the part headers.`,
+			);
+		}
+		if (att.cid !== undefined && !support.contentId) {
+			throw unsupported(
+				"attachments[].cid",
+				`${mimeHint} Or attach the image with attachData() and link to it.`,
+			);
+		}
+		if (
+			att.contentDisposition === "inline" &&
+			att.cid === undefined &&
+			!support.disposition
+		) {
+			throw unsupported(
+				"attachments[].contentDisposition",
+				`${mimeHint} Or give the part a cid with embedData().`,
+			);
+		}
+	}
 }
 
 /**

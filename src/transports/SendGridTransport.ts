@@ -7,6 +7,7 @@ import {
 	registerTransport,
 } from "../Mail.js";
 import {
+	assertApiCarries,
 	assertNoEnvelope,
 	attachmentBytes,
 	attachmentsFor,
@@ -53,6 +54,10 @@ export class SendGridTransport implements MailTransport {
 
 	async send(message: MailMessage): Promise<MailSendOutcome> {
 		assertNoEnvelope(message, "sendgrid");
+		assertApiCarries(message, "sendgrid", {
+			contentId: true,
+			disposition: true,
+		});
 		assertHasRecipients(message);
 
 		// v3 wants the bare address in `email` and the display name apart;
@@ -96,14 +101,12 @@ export class SendGridTransport implements MailTransport {
 				const entry: Record<string, string> = {
 					filename: stripCrlf(att.filename),
 					content: attachmentBytes(att).toString("base64"),
-					disposition: "attachment",
+					// An embed()'s cid is inline, so `<img src="cid:…">` resolves.
+					disposition:
+						att.contentDisposition ?? (att.cid ? "inline" : "attachment"),
 				};
 				if (att.contentType) entry.type = stripCrlf(att.contentType);
-				// An embed()'s cid: inline, so `<img src="cid:…">` resolves.
-				if (att.cid) {
-					entry.disposition = "inline";
-					entry.content_id = stripCrlf(att.cid);
-				}
+				if (att.cid) entry.content_id = stripCrlf(att.cid);
 				return entry;
 			});
 		}

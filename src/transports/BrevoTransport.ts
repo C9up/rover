@@ -7,6 +7,7 @@ import {
 	registerTransport,
 } from "../Mail.js";
 import {
+	assertApiCarries,
 	assertNoEnvelope,
 	attachmentBytes,
 	attachmentsFor,
@@ -81,6 +82,13 @@ export class BrevoTransport implements MailTransport {
 
 	async send(message: MailMessage): Promise<MailSendOutcome> {
 		assertNoEnvelope(message, "brevo");
+		// NAMED DEVIATION: Brevo has no inline (cid) parts. Upstream sends an
+		// embed() as a regular attachment, leaving a broken `cid:` image in the
+		// body; rover refuses the message instead of changing what it shows.
+		assertApiCarries(message, "brevo", {
+			contentId: false,
+			disposition: false,
+		});
 		if (
 			message.to.length === 0 &&
 			message.cc.length === 0 &&
@@ -127,8 +135,6 @@ export class BrevoTransport implements MailTransport {
 		if (attachmentsFor(message).length > 0) {
 			body.attachment = attachmentsFor(message).map((att) => ({
 				name: stripCrlf(att.filename),
-				// Brevo has no inline (cid) parts: an embed() goes as a regular
-				// attachment, as upstream's Brevo transport sends it.
 				content: attachmentBytes(att).toString("base64"),
 			}));
 		}

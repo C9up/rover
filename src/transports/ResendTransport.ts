@@ -7,6 +7,7 @@ import {
 	registerTransport,
 } from "../Mail.js";
 import {
+	assertApiCarries,
 	assertNoEnvelope,
 	attachmentBytes,
 	attachmentsFor,
@@ -66,6 +67,10 @@ export class ResendTransport implements MailTransport {
 
 	async send(message: MailMessage): Promise<MailSendOutcome> {
 		assertNoEnvelope(message, "resend");
+		assertApiCarries(message, "resend", {
+			contentId: true,
+			disposition: false,
+		});
 		if (
 			message.to.length === 0 &&
 			message.cc.length === 0 &&

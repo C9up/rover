@@ -18,7 +18,7 @@ beforeEach(() => {
 });
 afterEach(() => fetchSpy.mockRestore());
 
-const threaded = (): Promise<MailMessage> =>
+const reply = (): MessageBuilder =>
 	new MessageBuilder()
 		.from("app@example.com")
 		.to("bob@example.com")
@@ -28,7 +28,10 @@ const threaded = (): Promise<MailMessage> =>
 		.messageId("<reply-2@example.com>")
 		.inReplyTo("<order-1@example.com>")
 		.references(["<order-1@example.com>"])
-		.priority("high")
+		.priority("high");
+
+const threaded = (): Promise<MailMessage> =>
+	reply()
 		.embedData(Buffer.from("PNG"), "logo", { contentType: "image/png" })
 		.build();
 
@@ -106,7 +109,7 @@ describe("rover > HTTP transports carry threading, priority and inline images", 
 	});
 
 	it("brevo sends the headers", async () => {
-		await new BrevoTransport({ apiKey: "k" }).send(await threaded());
+		await new BrevoTransport({ apiKey: "k" }).send(await reply().build());
 		const body: unknown = JSON.parse(await sentText());
 		expect(body).toMatchObject({
 			headers: {
@@ -115,6 +118,111 @@ describe("rover > HTTP transports carry threading, priority and inline images", 
 				References: "<order-1@example.com>",
 				"X-Priority": "1 (Highest)",
 			},
+		});
+	});
+
+	const jsonApis = [
+		["sendgrid", () => new SendGridTransport({ apiKey: "k" })],
+		["resend", () => new ResendTransport({ apiKey: "k" })],
+		["brevo", () => new BrevoTransport({ apiKey: "k" })],
+	] as const;
+
+	const base = () =>
+		new MessageBuilder()
+			.from("app@example.com")
+			.to("bob@example.com")
+			.subject("s")
+			.text("t");
+
+	it.each(jsonApis)(
+		"%s refuses a watch body it cannot carry",
+		async (provider, make) => {
+			const message = await base().watch("<b>w</b>").build();
+			await expect(make().send(message)).rejects.toMatchObject({
+				code: "E_MAIL_FIELD_UNSUPPORTED",
+				context: { provider, field: "watchHtml" },
+			});
+			expect(fetchSpy).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each(jsonApis)(
+		"%s refuses attachment headers it cannot carry",
+		async (provider, make) => {
+			const message = await base()
+				.attachData("x", { filename: "a.txt", headers: { "X-Part": "1" } })
+				.build();
+			await expect(make().send(message)).rejects.toMatchObject({
+				code: "E_MAIL_FIELD_UNSUPPORTED",
+				context: { provider, field: "attachments[].headers" },
+			});
+			expect(fetchSpy).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each(jsonApis)(
+		"%s decodes a string attachment by its encoding",
+		async (_provider, make) => {
+			const message = await base()
+				.attachData(Buffer.from("PNG").toString("base64"), {
+					filename: "a.png",
+					encoding: "base64",
+				})
+				.build();
+			await make().send(message);
+			const sent = await sentText();
+			// The bytes are "PNG", base64'd once for the JSON body, not the
+			// base64 text base64'd a second time.
+			expect(sent).toContain(`"${Buffer.from("PNG").toString("base64")}"`);
+			expect(sent).not.toContain(
+				Buffer.from(Buffer.from("PNG").toString("base64")).toString("base64"),
+			);
+		},
+	);
+
+	it("refuses an attachment encoding it cannot decode", async () => {
+		const message = await base()
+			.attachData("x", { filename: "a.bin", encoding: "rot13" })
+			.build();
+		await expect(
+			new ResendTransport({ apiKey: "k" }).send(message),
+		).rejects.toMatchObject({ code: "E_MAIL_INVALID_MESSAGE" });
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	it("brevo refuses an inline image instead of sending it as an attachment", async () => {
+		await expect(
+			new BrevoTransport({ apiKey: "k" }).send(await threaded()),
+		).rejects.toMatchObject({
+			code: "E_MAIL_FIELD_UNSUPPORTED",
+			context: { provider: "brevo", field: "attachments[].cid" },
+		});
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	it("resend refuses an inline disposition without a cid", async () => {
+		const message = await base()
+			.attachData("x", { filename: "a.txt", contentDisposition: "inline" })
+			.build();
+		await expect(
+			new ResendTransport({ apiKey: "k" }).send(message),
+		).rejects.toMatchObject({
+			code: "E_MAIL_FIELD_UNSUPPORTED",
+			context: {
+				provider: "resend",
+				field: "attachments[].contentDisposition",
+			},
+		});
+	});
+
+	it("sendgrid sends the attachment's own disposition", async () => {
+		const message = await base()
+			.attachData("x", { filename: "a.txt", contentDisposition: "inline" })
+			.build();
+		await new SendGridTransport({ apiKey: "k" }).send(message);
+		const body: unknown = JSON.parse(await sentText());
+		expect(body).toMatchObject({
+			attachments: [{ filename: "a.txt", disposition: "inline" }],
 		});
 	});
 
