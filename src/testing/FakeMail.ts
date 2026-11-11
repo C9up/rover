@@ -258,23 +258,31 @@ function isMailConstructor(
 	);
 }
 
+/**
+ * A snapshot of a captured message: every field by spread, so a field added to
+ * `MailMessage` is in it without anyone remembering to list it, and every
+ * nested object or array copied, so editing the snapshot leaves the capture
+ * alone.
+ */
 function cloneMessage(m: MailMessage): MailMessage {
-	return {
-		from: m.from,
+	const copy: MailMessage = {
+		...m,
 		to: m.to.slice(),
 		cc: m.cc.slice(),
 		bcc: m.bcc.slice(),
-		replyTo: m.replyTo?.slice(),
-		subject: m.subject,
-		html: m.html,
-		text: m.text,
-		attachments: m.attachments.slice(),
+		attachments: m.attachments.map((att) =>
+			att.headers === undefined
+				? { ...att }
+				: { ...att, headers: { ...att.headers } },
+		),
 		headers: { ...m.headers },
-		priority: m.priority,
-		messageId: m.messageId,
-		inReplyTo: m.inReplyTo,
-		references: m.references ? m.references.slice() : undefined,
 	};
+	if (m.replyTo !== undefined) copy.replyTo = m.replyTo.slice();
+	if (m.references !== undefined) copy.references = m.references.slice();
+	if (m.envelope !== undefined) copy.envelope = { ...m.envelope };
+	if (m.list !== undefined) copy.list = { ...m.list };
+	if (m.icalEvent !== undefined) copy.icalEvent = { ...m.icalEvent };
+	return copy;
 }
 
 function makeMatcher(

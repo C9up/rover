@@ -13,6 +13,7 @@ import {
 	type MailMessage,
 	type MailSendOutcome,
 	type MailTransport,
+	type MessageBuilder,
 	registerTransport,
 } from "../../src/index.js";
 import { defined } from "../__helpers__/defined.js";
@@ -79,6 +80,40 @@ describe("rover > the queued bucket", () => {
 		defined(fake.getQueued()[0]).to.push("injected@evil.test");
 
 		expect(defined(fake.getQueued()[0]).to).toEqual(["user@acme.test"]);
+	});
+
+	it("keeps every field of the message in the snapshot", async () => {
+		const mail = makeMail();
+		const fake = mail.fake();
+		const build = (m: MessageBuilder) =>
+			m
+				.to("user@acme.test")
+				.subject("Later")
+				.watch("<b>w</b>")
+				.encoding("base64")
+				.envelope({ from: "bounce@acme.test" })
+				.listHelp("https://acme.test/help")
+				.icalEvent("BEGIN:VCALENDAR", { method: "REQUEST" })
+				.attachData("x", { filename: "a.txt", headers: { "X-Part": "1" } });
+		await mail.send(build);
+		await mail.sendLater(build);
+
+		for (const captured of [fake.getSent(), fake.getQueued()]) {
+			const message = defined(captured[0]);
+			expect(message).toMatchObject({
+				watchHtml: "<b>w</b>",
+				encoding: "base64",
+				envelope: { from: "bounce@acme.test" },
+				list: { help: "https://acme.test/help" },
+				icalEvent: { content: "BEGIN:VCALENDAR", method: "REQUEST" },
+				attachments: [{ filename: "a.txt", headers: { "X-Part": "1" } }],
+			});
+			// Still a snapshot: editing a nested part leaves the capture alone.
+			defined(message.attachments[0]).filename = "edited";
+			if (message.icalEvent) message.icalEvent.method = "CANCEL";
+		}
+		expect(defined(fake.getSent()[0]).attachments[0]?.filename).toBe("a.txt");
+		expect(defined(fake.getQueued()[0]).icalEvent?.method).toBe("REQUEST");
 	});
 
 	it("answers assertQueued on a predicate, and assertNotQueued on its opposite", async () => {
