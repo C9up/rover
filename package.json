@@ -78,7 +78,7 @@
     "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json"
   },
   "dependencies": {
-    "nodemailer": "^10.0.1"
+    "nodemailer": "^10.1.4"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.12",
