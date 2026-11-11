@@ -1,0 +1,13 @@
+const value: unknown = "x";
+const kept = ["a", "b"] as const;
+const asserted = value as string;
+const maybe: string | undefined = asserted;
+const sure = maybe!;
+let loose: any;
+function f(_unused: string, used: string) {
+	return used + sure + kept + loose;
+}
+class C {
+	#_hidden = 1;
+	#visible = 2;
+}

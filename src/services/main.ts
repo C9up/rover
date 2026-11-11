@@ -37,11 +37,12 @@ export function clearMail(): void {
 	instance = undefined;
 }
 
-// The target is never read through — every trap forwards to `instance`.
+// The target is never read through — every trap forwards to `instance`, so
+// the trap takes the property alone.
 const target: Mail = Object.create(null);
 
 const mail: Mail = new Proxy(target, {
-	get(_target, prop) {
+	get(...[, prop]: [Mail, string | symbol]) {
 		// A module loader inspects what it imports before anyone uses it: it
 		// reads `then` to decide whether the value is thenable, and various
 		// symbols for interop and formatting. They are not members of Mail, so

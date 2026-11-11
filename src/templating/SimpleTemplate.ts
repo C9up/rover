@@ -43,7 +43,6 @@ export async function render(
 export async function renderFile(
 	viewPath: string,
 	data: Record<string, unknown>,
-	_visited: Set<string> = new Set(),
 	// Per-call viewsRoot so a `Mail` instance resolves templates under its OWN
 	// configured root instead of the process-wide `setViewsRoot` mutable global
 	// (which is last-constructor-wins across instances). Falls back to the
@@ -78,20 +77,22 @@ const MIN_SAFE_BIGINT = BigInt(Number.MIN_SAFE_INTEGER);
  * Note: a `Date` is serialised by its `toJSON` (ISO-8601), a deliberate change
  * from the old engine's locale `String(date)` — ISO is the stable mail format.
  */
-function dataReplacer(_key: string, value: unknown): unknown {
+function dataReplacer(key: string, value: unknown): unknown {
+	// The key names the offending field, so a large data object says which.
+	const at = key === "" ? "" : ` (at "${key}")`;
 	if (typeof value === "bigint") {
 		if (value >= MIN_SAFE_BIGINT && value <= MAX_SAFE_BIGINT) {
 			return Number(value);
 		}
 		throw new RoverError(
 			"E_MAIL_TEMPLATE_SYNTAX",
-			`Cannot render bigint ${value} — it exceeds Number.MAX_SAFE_INTEGER and cannot cross the template engine boundary without precision loss; format it to a string before rendering`,
+			`Cannot render bigint ${value}${at} — it exceeds Number.MAX_SAFE_INTEGER and cannot cross the template engine boundary without precision loss; format it to a string before rendering`,
 		);
 	}
 	if (typeof value === "number" && !Number.isFinite(value)) {
 		throw new RoverError(
 			"E_MAIL_TEMPLATE_SYNTAX",
-			`Cannot render non-finite number ${value} — NaN and Infinity have no representation across the template engine boundary; format it to a string before rendering`,
+			`Cannot render non-finite number ${value}${at} — NaN and Infinity have no representation across the template engine boundary; format it to a string before rendering`,
 		);
 	}
 	return value;

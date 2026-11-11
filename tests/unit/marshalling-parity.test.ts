@@ -23,6 +23,7 @@ describe("marshalling — bigint", () => {
 	it("rejects a bigint beyond MAX_SAFE_INTEGER instead of throwing a bare TypeError", async () => {
 		await expect(render("{{ n }}", { n: 2n ** 60n })).rejects.toMatchObject({
 			code: "E_MAIL_TEMPLATE_SYNTAX",
+			message: expect.stringContaining('(at "n")'),
 		});
 	});
 });
@@ -37,7 +38,10 @@ describe("marshalling — non-finite numbers", () => {
 	it("rejects Infinity rather than silently flipping truthy→falsy", async () => {
 		await expect(
 			render("{{#if x}}Y{{/if}}", { x: Number.POSITIVE_INFINITY }),
-		).rejects.toMatchObject({ code: "E_MAIL_TEMPLATE_SYNTAX" });
+		).rejects.toMatchObject({
+			code: "E_MAIL_TEMPLATE_SYNTAX",
+			message: expect.stringContaining('(at "x")'),
+		});
 	});
 });
 

@@ -95,7 +95,7 @@ export function createMailgunWebhookHandler(
 		? maxAgeSeconds * 2
 		: Number.MAX_SAFE_INTEGER / 1000;
 
-	return async (ctx: WebhookHttpContext, _next): Promise<void> => {
+	return async (ctx: WebhookHttpContext): Promise<void> => {
 		const raw = await Promise.resolve(ctx.request.rawBody());
 		let payload: unknown;
 		try {

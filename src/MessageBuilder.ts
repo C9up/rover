@@ -1452,7 +1452,7 @@ export class MessageBuilder {
 	): Promise<string> {
 		const engine = MessageBuilder.templateEngine;
 		if (engine === undefined) {
-			return renderTemplateFile(view.path, view.data, undefined, viewsRoot);
+			return renderTemplateFile(view.path, view.data, viewsRoot);
 		}
 		const shared: Record<string, unknown> = { ...globals };
 		if (withImages) {

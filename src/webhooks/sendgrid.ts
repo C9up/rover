@@ -40,7 +40,7 @@ export function createSendGridWebhookHandler(
 	const emitter = options.emitter;
 	const maxAgeSeconds = options.maxAgeSeconds ?? 300;
 
-	return async (ctx: WebhookHttpContext, _next): Promise<void> => {
+	return async (ctx: WebhookHttpContext): Promise<void> => {
 		const raw = await Promise.resolve(ctx.request.rawBody());
 		const signature = ctx.request.header(
 			"x-twilio-email-event-webhook-signature",
