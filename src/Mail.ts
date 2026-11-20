@@ -917,17 +917,20 @@ export class Mail {
 
 	/**
 	 * Get a `Mailer` bound to a named transport, so `mail.use('mailgun').send(cb)`
-	 * routes through that transport (Adonis parity). Mailers are cached per name.
+	 * routes through that transport (Adonis parity). Without a name it is the
+	 * configured `default` mailer, as upstream's `use(mailerName?)`. Mailers are
+	 * cached per name.
 	 */
-	use(name: string): Mailer {
+	use(name?: string): Mailer {
+		const mailerName = name ?? this.#defaultTransport;
 		// Building the transport here is what makes a misconfigured mailer
 		// report on first use. A fake captures sends without one.
-		if (this.#fake === null) this.#requireTransport(name);
-		else this.#requireDeclared(name);
-		let mailer = this.#mailers.get(name);
+		if (this.#fake === null) this.#requireTransport(mailerName);
+		else this.#requireDeclared(mailerName);
+		let mailer = this.#mailers.get(mailerName);
 		if (mailer === undefined) {
-			mailer = new Mailer(this, name);
-			this.#mailers.set(name, mailer);
+			mailer = new Mailer(this, mailerName);
+			this.#mailers.set(mailerName, mailer);
 		}
 		return mailer;
 	}
@@ -1006,10 +1009,16 @@ export class Mail {
 }
 
 /**
- * A `Mailer` binds a named transport to the `send` / `sendLater` API so
- * `mail.use('mailgun').send(cb)` routes through that transport (Adonis parity).
- * It delegates back to the owning `Mail`, so fake mode and lifecycle events are
+ * A `Mailer` binds a named transport to the per-message API so
+ * `mail.use('mailgun').send(cb)` routes through that transport (Adonis parity):
+ * `send`, `sendLater`, `sendCompiled`, `sendLaterCompiled` and `close`. It
+ * delegates back to the owning `Mail`, so fake mode and lifecycle events are
  * honoured uniformly.
+ *
+ * Deviation (named): upstream's `Mailer` also has `setMessenger()`. In rover
+ * the queue is one per manager (one `MailJobHandler` registered on it), so
+ * `setMessenger()` lives on `Mail` only; a per-mailer queue is chosen with
+ * `sendLater(cb, { queue })`.
  */
 export class Mailer {
 	#mail: Mail;
@@ -1044,6 +1053,27 @@ export class Mailer {
 		options?: { queue?: string },
 	): Promise<string> {
 		return this.#mail.sendLater(arg, { ...options, transport: this.#name });
+	}
+
+	/** Send a message that is already built, through this mailer's transport. */
+	sendCompiled(message: MailMessage): Promise<MailResponse> {
+		return this.#mail.sendCompiled(message, this.#name);
+	}
+
+	/** Queue a message that is already built, for this mailer's transport. */
+	sendLaterCompiled(
+		message: MailMessage,
+		options?: { queue?: string },
+	): Promise<string> {
+		return this.#mail.sendLaterCompiled(message, {
+			...options,
+			transport: this.#name,
+		});
+	}
+
+	/** Close this mailer's transport connections (Adonis `Mailer.close`). */
+	close(): Promise<void> {
+		return this.#mail.close(this.#name);
 	}
 }
 
