@@ -15,6 +15,7 @@ import {
 	headerValue,
 } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
+import { apiBaseUrl } from "./baseUrl.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
@@ -74,10 +75,11 @@ export class BrevoTransport implements MailTransport {
 			);
 		}
 		this.#apiKey = apiKey;
-		this.#baseUrl =
-			typeof config.baseUrl === "string"
-				? normalizeConfig(config.baseUrl).replace(/\/+$/, "")
-				: "https://api.brevo.com";
+		this.#baseUrl = apiBaseUrl(
+			"Brevo",
+			typeof config.baseUrl === "string" ? normalizeConfig(config.baseUrl) : "",
+			"https://api.brevo.com",
+		);
 	}
 
 	async send(message: MailMessage): Promise<MailSendOutcome> {

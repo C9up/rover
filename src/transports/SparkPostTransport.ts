@@ -6,6 +6,7 @@ import {
 } from "../Mail.js";
 import { composeMime } from "../mime.js";
 import { RoverError } from "../RoverError.js";
+import { apiBaseUrl } from "./baseUrl.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
@@ -56,10 +57,11 @@ export class SparkPostTransport implements MailTransport {
 			);
 		}
 		this.#apiKey = apiKey;
-		this.#baseUrl =
-			typeof config.baseUrl === "string"
-				? normalizeConfig(config.baseUrl).replace(/\/+$/, "")
-				: "https://api.sparkpost.com";
+		this.#baseUrl = apiBaseUrl(
+			"SparkPost",
+			typeof config.baseUrl === "string" ? normalizeConfig(config.baseUrl) : "",
+			"https://api.sparkpost.com",
+		);
 	}
 
 	async send(message: MailMessage): Promise<MailSendOutcome> {

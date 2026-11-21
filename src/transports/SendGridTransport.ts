@@ -15,6 +15,7 @@ import {
 	headerValue,
 } from "../MessageBuilder.js";
 import { RoverError } from "../RoverError.js";
+import { apiBaseUrl } from "./baseUrl.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
@@ -46,10 +47,11 @@ export class SendGridTransport implements MailTransport {
 		}
 
 		this.#apiKey = apiKey;
-		this.#baseUrl =
-			typeof config.baseUrl === "string" && config.baseUrl.length > 0
-				? normalizeConfig(config.baseUrl).replace(/\/+$/, "")
-				: "https://api.sendgrid.com";
+		this.#baseUrl = apiBaseUrl(
+			"SendGrid",
+			typeof config.baseUrl === "string" ? normalizeConfig(config.baseUrl) : "",
+			"https://api.sendgrid.com",
+		);
 	}
 
 	async send(message: MailMessage): Promise<MailSendOutcome> {

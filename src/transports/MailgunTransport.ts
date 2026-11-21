@@ -7,6 +7,7 @@ import {
 } from "../Mail.js";
 import { composeMime } from "../mime.js";
 import { RoverError } from "../RoverError.js";
+import { apiBaseUrl } from "./baseUrl.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
@@ -69,10 +70,11 @@ export class MailgunTransport implements MailTransport {
 				: "https://api.mailgun.net";
 
 		this.#apiKey = apiKey;
-		this.#baseUrl =
-			typeof config.baseUrl === "string" && config.baseUrl.length > 0
-				? normalizeConfig(config.baseUrl).replace(/\/+$/, "")
-				: url;
+		this.#baseUrl = apiBaseUrl(
+			"Mailgun",
+			typeof config.baseUrl === "string" ? normalizeConfig(config.baseUrl) : "",
+			url,
+		);
 	}
 
 	async send(message: MailMessage): Promise<MailSendOutcome> {
