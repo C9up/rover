@@ -81,7 +81,7 @@
     "nodemailer": "^10.1.4"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.12",
+    "@biomejs/biome": "^2.6.8",
     "@c9up/bay": "^0.2.0",
     "@c9up/helix": "^0.2.0",
     "@c9up/inker": "^0.1.20",
