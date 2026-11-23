@@ -1,5 +1,6 @@
+import { E_MAIL_RETRY_CONFIG, E_MAIL_TRANSPORT_ERROR } from "./errors.js";
 import { field, stringField } from "./guards.js";
-import { RoverError } from "./RoverError.js";
+import { withHelp } from "./help.js";
 
 export interface RetryConfig {
 	maxAttempts: number;
@@ -25,8 +26,8 @@ const RETRYABLE_ERRNO = new Set([
 
 /**
  * A failure is retryable when:
- *   - it's a `E_MAIL_PROVIDER_ERROR` with `upstreamStatus` 429 or ≥ 500
- *   - or it's a `E_MAIL_PROVIDER_ERROR` whose `context.networkCode` is a known
+ *   - it's a `E_MAIL_TRANSPORT_ERROR` with `upstreamStatus` 429 or ≥ 500
+ *   - or it's a `E_MAIL_TRANSPORT_ERROR` whose `context.networkCode` is a known
  *     retryable Node errno (SDK wrappers surface the original errno this way
  *     when the HTTP layer never produced a status)
  *   - or it's a raw Error with a matching Node networking errno on `.code`
@@ -34,7 +35,7 @@ const RETRYABLE_ERRNO = new Set([
  * SMTP replies are classified the other way round, see {@link isRetryableSmtp}.
  */
 export function isRetryableError(err: unknown): boolean {
-	if (err instanceof RoverError && err.code === "E_MAIL_PROVIDER_ERROR") {
+	if (err instanceof E_MAIL_TRANSPORT_ERROR) {
 		const statusStr = err.context.upstreamStatus;
 		const status = Number(statusStr);
 		if (err.context.provider === "smtp") return isRetryableSmtp(err, status);
@@ -66,7 +67,7 @@ export function isRetryableError(err: unknown): boolean {
  * repeated, so a hard bounce is not hammered. A rejected login is never
  * retried whatever its code: repeating it only helps lock the account.
  */
-function isRetryableSmtp(err: RoverError, status: number): boolean {
+function isRetryableSmtp(err: E_MAIL_TRANSPORT_ERROR, status: number): boolean {
 	const code = err.context.networkCode;
 	if (code === "EAUTH") return false;
 	if (Number.isFinite(status) && status >= 400 && status < 500) return true;
@@ -83,7 +84,7 @@ export function computeBackoffMs(
 	// SES/Resend transports capture it into `context.retryAfter`). Value is
 	// seconds per HTTP RFC 7231 §7.1.3; we cap at `maxDelayMs` so a malicious
 	// or mistaken provider can't force a very-long wait.
-	if (err instanceof RoverError && err.code === "E_MAIL_PROVIDER_ERROR") {
+	if (err instanceof E_MAIL_TRANSPORT_ERROR) {
 		const hint = err.context.retryAfter;
 		if (hint) {
 			const seconds = Number(hint);
@@ -120,10 +121,13 @@ export function resolveRetryConfig(
 		maxDelayMs: pick("maxDelayMs"),
 	};
 	if (!Number.isInteger(merged.maxAttempts) || merged.maxAttempts < 1) {
-		throw new RoverError(
-			"E_MAIL_RETRY_CONFIG",
-			`RetryConfig.maxAttempts must be an integer >= 1 (got ${merged.maxAttempts})`,
-			{ hint: "Set retry.maxAttempts to a positive integer." },
+		throw withHelp(
+			new E_MAIL_RETRY_CONFIG([
+				"maxAttempts",
+				"an integer >= 1",
+				merged.maxAttempts,
+			]),
+			"Set retry.maxAttempts to a positive integer.",
 		);
 	}
 	if (
@@ -131,10 +135,13 @@ export function resolveRetryConfig(
 		!Number.isFinite(merged.baseDelayMs) ||
 		merged.baseDelayMs < 0
 	) {
-		throw new RoverError(
-			"E_MAIL_RETRY_CONFIG",
-			`RetryConfig.baseDelayMs must be a non-negative finite number (got ${merged.baseDelayMs})`,
-			{ hint: "Use 0 or a positive number; the 50 ms floor kicks in anyway." },
+		throw withHelp(
+			new E_MAIL_RETRY_CONFIG([
+				"baseDelayMs",
+				"a non-negative finite number",
+				merged.baseDelayMs,
+			]),
+			"Use 0 or a positive number; the 50 ms floor kicks in anyway.",
 		);
 	}
 	if (
@@ -142,10 +149,13 @@ export function resolveRetryConfig(
 		!Number.isFinite(merged.factor) ||
 		merged.factor <= 0
 	) {
-		throw new RoverError(
-			"E_MAIL_RETRY_CONFIG",
-			`RetryConfig.factor must be a positive finite number (got ${merged.factor})`,
-			{ hint: "Use >= 1 for exponential growth; 1 means constant delay." },
+		throw withHelp(
+			new E_MAIL_RETRY_CONFIG([
+				"factor",
+				"a positive finite number",
+				merged.factor,
+			]),
+			"Use >= 1 for exponential growth; 1 means constant delay.",
 		);
 	}
 	return merged;

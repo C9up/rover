@@ -36,7 +36,7 @@ describe("rover > SMTP credentials never travel before TLS", () => {
 			pass: "S3cretPass!",
 		});
 		await expect(send(mail)).rejects.toMatchObject({
-			code: "E_MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_TRANSPORT_ERROR",
 		});
 		const commands = server.commands();
 		expect(commands.some((c) => c.toUpperCase().startsWith("AUTH"))).toBe(
@@ -51,7 +51,7 @@ describe("rover > SMTP credentials never travel before TLS", () => {
 		server = await startFakeSmtp({ advertiseStartTls: true });
 		const mail = mailFor(server.port, { user: "u", pass: "p" });
 		await expect(send(mail)).rejects.toMatchObject({
-			code: "E_MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_TRANSPORT_ERROR",
 		});
 		expect(
 			server.commands().some((c) => c.toUpperCase().startsWith("AUTH")),
@@ -64,7 +64,7 @@ describe("rover > SMTP credentials never travel before TLS", () => {
 			auth: { type: "OAuth2", user: "u", accessToken: "tok" },
 		});
 		await expect(send(mail)).rejects.toMatchObject({
-			code: "E_MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_TRANSPORT_ERROR",
 		});
 		expect(
 			server.commands().some((c) => c.toUpperCase().startsWith("AUTH")),
@@ -99,7 +99,7 @@ describe("rover > SMTP credentials never travel before TLS", () => {
 		(_label, opt) => {
 			expect(
 				() => new SmtpTransport({ host: "m", user: "u", pass: "p", ...opt }),
-			).toThrow(expect.objectContaining({ code: "E_MAIL_PROVIDER_CONFIG" }));
+			).toThrow(expect.objectContaining({ code: "E_INVALID_CONFIG" }));
 			expect(
 				() =>
 					new SmtpTransport({

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { RoverError } from "../../src/RoverError.js";
+import { E_MAIL_TEMPLATE_SYNTAX } from "../../src/errors.js";
 import {
 	render,
 	resetCache,
@@ -31,7 +31,7 @@ describe("marshalling — bigint", () => {
 describe("marshalling — non-finite numbers", () => {
 	it("rejects NaN rather than rendering empty", async () => {
 		await expect(render("{{ x }}", { x: Number.NaN })).rejects.toBeInstanceOf(
-			RoverError,
+			E_MAIL_TEMPLATE_SYNTAX,
 		);
 	});
 
@@ -86,6 +86,8 @@ describe("engine — deep nesting is a catchable error, not a process abort", ()
 	it("rejects {{#if}} nested beyond the depth limit", async () => {
 		const depth = 600;
 		const src = `${"{{#if a}}".repeat(depth)}x${"{{/if}}".repeat(depth)}`;
-		await expect(render(src, { a: true })).rejects.toBeInstanceOf(RoverError);
+		await expect(render(src, { a: true })).rejects.toBeInstanceOf(
+			E_MAIL_TEMPLATE_SYNTAX,
+		);
 	});
 });

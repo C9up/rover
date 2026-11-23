@@ -1,8 +1,17 @@
 import { randomBytes } from "node:crypto";
+import { Exception } from "@c9up/flare";
 import nodemailer from "nodemailer";
 import type NodemailerMail from "nodemailer/lib/mailer/index.js";
 import type SMTPTransport from "nodemailer/lib/smtp-transport/index.js";
 import { BaseMail, type MailAddress } from "./BaseMail.js";
+import {
+	E_INVALID_CONFIG,
+	E_MAIL_INVALID_MESSAGE,
+	E_MAIL_TRANSPORT_ERROR,
+	E_MAIL_UNKNOWN_MAILER,
+	E_MAIL_UNKNOWN_TRANSPORT,
+	E_ROVER_FAKE_ACTIVE,
+} from "./errors.js";
 import {
 	assertRecipient,
 	formatRecipient,
@@ -10,6 +19,7 @@ import {
 	toRecipient,
 } from "./format.js";
 import { field, numberField, stringField } from "./guards.js";
+import { withHelp } from "./help.js";
 import {
 	assertCompiledParts,
 	assertEnvelope,
@@ -31,7 +41,6 @@ import {
 	MailJobHandler,
 } from "./queue/MailJob.js";
 import { MemoryMailMessenger } from "./queue/MemoryMailMessenger.js";
-import { RoverError } from "./RoverError.js";
 import {
 	computeBackoffMs,
 	isRetryableError,
@@ -262,35 +271,35 @@ export class SmtpTransport implements MailTransport {
 		// timed out against a nonexistent local server. Fail at
 		// construction with an actionable message instead.
 		if (config.host !== undefined && typeof config.host !== "string") {
-			throw new RoverError(
-				"E_MAIL_PROVIDER_CONFIG",
-				`SMTP host must be a string, got ${typeof config.host}`,
-				{ hint: "Set config.host to your SMTP server hostname." },
+			throw withHelp(
+				new E_INVALID_CONFIG(
+					`SMTP host must be a string, got ${typeof config.host}`,
+				),
+				"Set config.host to your SMTP server hostname.",
 			);
 		}
 		if (typeof config.host !== "string" || config.host.length === 0) {
-			throw new RoverError("E_MAIL_PROVIDER_CONFIG", "SMTP host is required", {
-				hint: "Set config.host (e.g. process.env.SMTP_HOST). Use the fake / log transports for local development.",
-			});
+			throw withHelp(
+				new E_INVALID_CONFIG("SMTP host is required"),
+				"Set config.host (e.g. process.env.SMTP_HOST). Use the fake / log transports for local development.",
+			);
 		}
 		const user = typeof config.user === "string" ? config.user : undefined;
 		const pass = typeof config.pass === "string" ? config.pass : undefined;
 		// Partial auth config (only user OR only pass) is almost always a typo —
 		// fail fast rather than connect anonymously and let the server reject.
 		if ((user && !pass) || (!user && pass)) {
-			throw new RoverError(
-				"E_MAIL_PROVIDER_CONFIG",
-				"SMTP auth requires both `user` and `pass` or neither",
-				{
-					hint: "Check your env vars — one half of the credential pair is missing.",
-				},
+			throw withHelp(
+				new E_INVALID_CONFIG(
+					"SMTP auth requires both `user` and `pass` or neither",
+				),
+				"Check your env vars — one half of the credential pair is missing.",
 			);
 		}
 		if (user && config.auth !== undefined) {
-			throw new RoverError(
-				"E_MAIL_PROVIDER_CONFIG",
-				"SMTP config sets both `user`/`pass` and `auth`",
-				{ hint: "Keep one: the `user`/`pass` shorthand or the `auth` object." },
+			throw withHelp(
+				new E_INVALID_CONFIG("SMTP config sets both `user`/`pass` and `auth`"),
+				"Keep one: the `user`/`pass` shorthand or the `auth` object.",
 			);
 		}
 
@@ -317,12 +326,11 @@ export class SmtpTransport implements MailTransport {
 				config.ignoreTLS === true ||
 				config.opportunisticTLS === true
 			) {
-				throw new RoverError(
-					"E_MAIL_PROVIDER_CONFIG",
-					"SMTP credentials are configured with TLS turned off (requireTLS: false, ignoreTLS or opportunisticTLS)",
-					{
-						hint: "Use secure: true (port 465) or STARTTLS on 587. For a local development server without TLS, set allowInsecureAuth: true.",
-					},
+				throw withHelp(
+					new E_INVALID_CONFIG(
+						"SMTP credentials are configured with TLS turned off (requireTLS: false, ignoreTLS or opportunisticTLS)",
+					),
+					"Use secure: true (port 465) or STARTTLS on 587. For a local development server without TLS, set allowInsecureAuth: true.",
 				);
 			}
 			smtpOptions.requireTLS = true;
@@ -339,10 +347,9 @@ export class SmtpTransport implements MailTransport {
 			message.cc.length === 0 &&
 			message.bcc.length === 0
 		) {
-			throw new RoverError(
-				"E_MAIL_PROVIDER_CONFIG",
-				"Mail message has no recipients",
-				{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
+			throw withHelp(
+				new E_MAIL_INVALID_MESSAGE(["Mail message has no recipients"]),
+				"Set at least one `to`, `cc`, or `bcc` before sending.",
 			);
 		}
 		try {
@@ -385,21 +392,22 @@ function smtpPort(port: unknown): number | undefined {
 	if (port === undefined || port === "") return undefined;
 	if (typeof port === "number" && Number.isInteger(port)) return port;
 	if (typeof port === "string" && /^\d+$/.test(port)) return Number(port);
-	throw new RoverError(
-		"E_MAIL_PROVIDER_CONFIG",
-		`SMTP port must be an integer, got ${JSON.stringify(port)}`,
-		{ hint: "Set config.port to a number such as 587 or 465." },
+	throw withHelp(
+		new E_INVALID_CONFIG(
+			`SMTP port must be an integer, got ${JSON.stringify(port)}`,
+		),
+		"Set config.port to a number such as 587 or 465.",
 	);
 }
 
 /**
- * Normalise nodemailer / socket errors into the uniform `E_MAIL_PROVIDER_ERROR`
+ * Normalise nodemailer / socket errors into the uniform `E_MAIL_TRANSPORT_ERROR`
  * shape used by the rest of the library. Preserves the `code` field (errno)
  * in `context.networkCode` so `isRetryableError` can classify transient
  * network failures without losing the root cause.
  */
-function wrapSmtpError(err: unknown): RoverError {
-	if (err instanceof RoverError) return err;
+function wrapSmtpError(err: unknown): Exception {
+	if (err instanceof Exception) return err;
 	const status = numberField(err, "responseCode") ?? 0;
 	const message = stringField(err, "message") ?? "unknown";
 	const ctx: Record<string, string> = {
@@ -409,9 +417,9 @@ function wrapSmtpError(err: unknown): RoverError {
 	};
 	const code = stringField(err, "code");
 	if (code !== undefined) ctx.networkCode = code;
-	return new RoverError("E_MAIL_PROVIDER_ERROR", `SMTP failed: ${message}`, {
-		hint: "Inspect `context.networkCode` (ECONNRESET/ETIMEDOUT/...) or `context.upstreamStatus` (SMTP response code) to decide retry eligibility.",
+	return new E_MAIL_TRANSPORT_ERROR(`SMTP failed: ${message}`, {
 		context: ctx,
+		help: "Inspect `context.networkCode` (ECONNRESET/ETIMEDOUT/...) or `context.upstreamStatus` (SMTP response code) to decide retry eligibility.",
 	});
 }
 
@@ -531,12 +539,9 @@ export class Mail {
 		for (const [name, transportConfig] of Object.entries(declared)) {
 			const factory = transportFactories.get(transportConfig.transport);
 			if (!factory) {
-				throw new RoverError(
-					"E_MAIL_UNKNOWN_TRANSPORT",
-					`Unknown mail transport type '${transportConfig.transport}' (configured under name '${name}')`,
-					{
-						hint: "Register the transport with registerTransport() before constructing Mail, or fix the typo in config.mail.transports[*].transport.",
-					},
+				throw withHelp(
+					new E_MAIL_UNKNOWN_TRANSPORT([transportConfig.transport, name]),
+					"Register the transport with registerTransport() before constructing Mail, or fix the typo in config.mail.transports[*].transport.",
 				);
 			}
 			// Built on first use, not here: a declared mailer the app never sends
@@ -553,12 +558,11 @@ export class Mail {
 		// the first email it tries to send — often a password reset, in
 		// production. Refuse at construction and name what was declared.
 		if (!this.#declared.has(this.#defaultTransport)) {
-			throw new RoverError(
-				"E_MAIL_UNKNOWN_MAILER",
-				`Mail default mailer '${this.#defaultTransport}' is not declared in config.mailers`,
-				{
-					hint: `${knownMailers(this.#declared)} Add it, or point \`default\` at one of them.`,
-				},
+			throw withHelp(
+				new E_MAIL_UNKNOWN_MAILER([
+					`Mail default mailer '${this.#defaultTransport}' is not declared in config.mailers`,
+				]),
+				`${knownMailers(this.#declared)} Add it, or point \`default\` at one of them.`,
 			);
 		}
 
@@ -791,19 +795,16 @@ export class Mail {
 	}
 
 	/**
-	 * Return a shallow clone of `err` with `context.attempts` annotated. We
+	 * Return a clone of a provider error with `context.attempts` annotated. We
 	 * avoid mutating the original error so outer retry layers / shared error
 	 * references don't see their attempt counter overwritten.
 	 */
 	#withAttempts(err: unknown, attempts: number): unknown {
-		if (!(err instanceof RoverError)) return err;
-		const clone = new RoverError(err.code, err.message, {
-			hint: err.hint,
-			sourceFile: err.sourceFile,
-			sourceLine: err.sourceLine,
-			docsUrl: err.docsUrl,
-			pipelineStage: err.pipelineStage,
+		if (!(err instanceof E_MAIL_TRANSPORT_ERROR)) return err;
+		const clone = new E_MAIL_TRANSPORT_ERROR(err.message, {
 			context: { ...err.context, attempts: String(attempts) },
+			help: err.help,
+			cause: err.cause,
 		});
 		if (err.stack) clone.stack = err.stack;
 		return clone;
@@ -940,7 +941,7 @@ export class Mail {
 		return this.#requireTransport(name);
 	}
 
-	/** The transport behind `name`, or a RoverError listing the declared ones. */
+	/** The transport behind `name`, or an E_MAIL_UNKNOWN_MAILER listing the declared ones. */
 	#requireTransport(name: string): MailTransport {
 		const cached = this.#transports.get(name);
 		if (cached) return cached;
@@ -956,10 +957,11 @@ export class Mail {
 	} {
 		const declared = this.#declared.get(name);
 		if (declared) return declared;
-		throw new RoverError(
-			"E_MAIL_UNKNOWN_MAILER",
-			`Mail mailer '${name}' is not declared in config.mailers`,
-			{ hint: knownMailers(this.#declared) },
+		throw withHelp(
+			new E_MAIL_UNKNOWN_MAILER([
+				`Mail mailer '${name}' is not declared in config.mailers`,
+			]),
+			knownMailers(this.#declared),
 		);
 	}
 
@@ -996,7 +998,7 @@ export class Mail {
 	 */
 	fake(): FakeMail {
 		if (this.#fake !== null) {
-			throw new Error("Mail.fake() already active — call restore() first");
+			throw new E_ROVER_FAKE_ACTIVE();
 		}
 		this.#fake = new FakeMail();
 		return this.#fake;
@@ -1092,12 +1094,9 @@ function validateMailMessage(message: MailMessage): void {
 		message.from === null ||
 		(typeof message.from === "string" && message.from.trim() === "")
 	) {
-		throw new RoverError(
-			"E_MAIL_INVALID_MESSAGE",
-			"Mail message has no `from` address",
-			{
-				hint: "Set `config.from`, an instance `from`, or call `message.from(...)` in the builder.",
-			},
+		throw withHelp(
+			new E_MAIL_INVALID_MESSAGE(["Mail message has no `from` address"]),
+			"Set `config.from`, an instance `from`, or call `message.from(...)` in the builder.",
 		);
 	}
 	// Every address is re-checked here, not only in the builder: a queue
@@ -1112,10 +1111,9 @@ function validateMailMessage(message: MailMessage): void {
 		const list: unknown = message[field];
 		if (list === undefined) continue;
 		if (!Array.isArray(list)) {
-			throw new RoverError(
-				"E_MAIL_INVALID_MESSAGE",
+			throw new E_MAIL_INVALID_MESSAGE([
 				`Mail message \`${field}\` must be an array`,
-			);
+			]);
 		}
 		for (const entry of list) assertRecipient(entry, `${field} address`);
 		if (field !== "replyTo") recipients += list.length;
@@ -1124,12 +1122,9 @@ function validateMailMessage(message: MailMessage): void {
 	assertHeaders(message.headers);
 	assertCompiledParts(message);
 	if (recipients === 0) {
-		throw new RoverError(
-			"E_MAIL_INVALID_MESSAGE",
-			"Mail message has no recipients",
-			{
-				hint: "Call `message.to(...)`, `cc(...)`, or `bcc(...)` with a non-empty address before sending.",
-			},
+		throw withHelp(
+			new E_MAIL_INVALID_MESSAGE(["Mail message has no recipients"]),
+			"Call `message.to(...)`, `cc(...)`, or `bcc(...)` with a non-empty address before sending.",
 		);
 	}
 }
@@ -1157,11 +1152,11 @@ function errorDescriptor(
 	err: unknown,
 	attempts: number,
 ): MailFailedEvent["error"] {
-	if (err instanceof RoverError) {
+	if (err instanceof E_MAIL_TRANSPORT_ERROR) {
 		const statusStr = err.context.upstreamStatus;
 		const upstream = Number(statusStr);
 		return {
-			code: err.code,
+			code: E_MAIL_TRANSPORT_ERROR.code,
 			message: err.message,
 			upstreamStatus: Number.isFinite(upstream) ? upstream : undefined,
 			upstreamStatusRaw: statusStr,

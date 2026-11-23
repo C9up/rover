@@ -11,6 +11,7 @@
  *   await mail.send((m) => m.to(user.email).subject('Hi').text('Hello'))
  */
 
+import { E_ROVER_NOT_BOOTED } from "../errors.js";
 import type { Mail } from "../Mail.js";
 
 let instance: Mail | undefined;
@@ -51,10 +52,7 @@ const mail: Mail = new Proxy(target, {
 			return undefined;
 		}
 		if (!instance) {
-			throw new Error(
-				"[rover] Mail singleton accessed before RoverProvider.boot() ran. " +
-					"Check that `@c9up/rover/provider` is listed in your reamrc.ts providers.",
-			);
+			throw new E_ROVER_NOT_BOOTED();
 		}
 		const value = Reflect.get(instance, prop, instance);
 		return typeof value === "function" ? value.bind(instance) : value;

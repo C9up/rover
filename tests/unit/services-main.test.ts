@@ -17,6 +17,9 @@ describe("rover > services/main accessor", () => {
 
 	it("still reports a genuine member access made before boot", () => {
 		expect(() => mail.send).toThrow(/accessed before RoverProvider.boot/);
+		expect(() => mail.send).toThrow(
+			expect.objectContaining({ code: "E_ROVER_NOT_BOOTED" }),
+		);
 	});
 
 	it("forwards to the installed Mail once booted", () => {

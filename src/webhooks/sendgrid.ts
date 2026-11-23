@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { createPublicKey, verify } from "node:crypto";
 import { emitSafely } from "../emitSafely.js";
+import { E_ROVER_WEBHOOK_KEY_MISSING } from "../errors.js";
 import { numberField, stringField } from "../guards.js";
 import type {
 	WebhookEmitter,
@@ -31,9 +32,11 @@ export function createSendGridWebhookHandler(
 	options: SendGridWebhookOptions,
 ): WebhookMiddleware {
 	if (!options.publicKey) {
-		throw new Error(
-			"createSendGridWebhookHandler: publicKey is required for Ed25519 verification.",
-		);
+		throw new E_ROVER_WEBHOOK_KEY_MISSING([
+			"createSendGridWebhookHandler",
+			"publicKey",
+			"Ed25519",
+		]);
 	}
 	const pemKey = toPem(options.publicKey);
 	const key = createPublicKey(pemKey);

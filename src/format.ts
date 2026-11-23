@@ -1,3 +1,9 @@
+import {
+	E_MAIL_HEADER_INJECTION,
+	E_MAIL_INVALID_ADDRESS,
+	E_MAIL_INVALID_MESSAGE,
+} from "./errors.js";
+import { withHelp } from "./help.js";
 /**
  * Address handling shared by the builder, the manager and the transports. Kept
  * dependency-free and in its own module so both `BaseMail` and
@@ -10,8 +16,6 @@
  * `to(email, name)` became several recipients: nodemailer reads such a string
  * as an address LIST.
  */
-
-import { RoverError } from "./RoverError.js";
 
 /** A recipient as AdonisJS stores it: a bare address, or an address and a name. */
 export type Recipient = string | { address: string; name: string };
@@ -43,19 +47,17 @@ export function isAddrSpec(value: string): boolean {
 /** Throw unless `address` is a single, header-safe addr-spec. */
 export function assertAddress(address: unknown, what = "address"): string {
 	if (typeof address !== "string") {
-		throw new RoverError(
-			"E_MAIL_INVALID_ADDRESS",
+		throw new E_MAIL_INVALID_ADDRESS([
 			`The ${what} must be a string, got ${typeof address}.`,
-		);
+		]);
 	}
 	assertHeaderSafe(address, what);
 	if (!isAddrSpec(address)) {
-		throw new RoverError(
-			"E_MAIL_INVALID_ADDRESS",
-			`The ${what} ${JSON.stringify(address)} is not a single email address.`,
-			{
-				hint: "Pass one address per call (local@domain). Put the display name in the second argument, and call to()/cc()/bcc() once per recipient or with an array.",
-			},
+		throw withHelp(
+			new E_MAIL_INVALID_ADDRESS([
+				`The ${what} ${JSON.stringify(address)} is not a single email address.`,
+			]),
+			"Pass one address per call (local@domain). Put the display name in the second argument, and call to()/cc()/bcc() once per recipient or with an array.",
 		);
 	}
 	return address;
@@ -69,10 +71,9 @@ export function toRecipient(address: string, name?: string): Recipient {
 	assertAddress(address);
 	if (name === undefined || name === "") return address;
 	if (typeof name !== "string") {
-		throw new RoverError(
-			"E_MAIL_INVALID_ADDRESS",
+		throw new E_MAIL_INVALID_ADDRESS([
 			`The display name must be a string, got ${typeof name}.`,
-		);
+		]);
 	}
 	assertHeaderSafe(name, "name");
 	return { address, name };
@@ -88,17 +89,13 @@ export function assertRecipient(value: unknown, what = "recipient"): Recipient {
 		const address: unknown = Reflect.get(value, "address");
 		const name: unknown = Reflect.get(value, "name");
 		if (typeof name !== "string" && name !== undefined) {
-			throw new RoverError(
-				"E_MAIL_INVALID_ADDRESS",
-				`The ${what} name must be a string.`,
-			);
+			throw new E_MAIL_INVALID_ADDRESS([`The ${what} name must be a string.`]);
 		}
 		return toRecipient(assertAddress(address, what), name);
 	}
-	throw new RoverError(
-		"E_MAIL_INVALID_ADDRESS",
+	throw new E_MAIL_INVALID_ADDRESS([
 		`The ${what} must be an address string or { address, name }.`,
-	);
+	]);
 }
 
 export function recipientAddress(recipient: Recipient): string {
@@ -159,12 +156,11 @@ export function contactOf(recipient: Recipient): {
 
 export function assertHeaderSafe(value: string, what: string): void {
 	if (!HEADER_BREAKERS.test(value)) return;
-	throw new RoverError(
-		"E_MAIL_HEADER_INJECTION",
-		`The ${what} contains a line break or NUL, which cannot appear in a mail header.`,
-		{
-			hint: "Strip CR/LF/NUL from user-supplied names and addresses before building the message.",
-		},
+	throw withHelp(
+		new E_MAIL_HEADER_INJECTION([
+			`The ${what} contains a line break or NUL, which cannot appear in a mail header.`,
+		]),
+		"Strip CR/LF/NUL from user-supplied names and addresses before building the message.",
 	);
 }
 
@@ -178,12 +174,11 @@ const HEADER_NAME = /^[!-9;-~]+$/;
  */
 export function assertHeaderName(name: unknown): string {
 	if (typeof name === "string" && HEADER_NAME.test(name)) return name;
-	throw new RoverError(
-		"E_MAIL_HEADER_INJECTION",
-		`${JSON.stringify(name)} is not a valid header name.`,
-		{
-			hint: "A header name is printable ASCII without spaces or a colon (RFC 5322 §3.6.8).",
-		},
+	throw withHelp(
+		new E_MAIL_HEADER_INJECTION([
+			`${JSON.stringify(name)} is not a valid header name.`,
+		]),
+		"A header name is printable ASCII without spaces or a colon (RFC 5322 §3.6.8).",
 	);
 }
 
@@ -194,10 +189,9 @@ export function assertHeaderName(name: unknown): string {
  */
 export function assertHeaderValue(value: unknown, name: string): string {
 	if (typeof value !== "string") {
-		throw new RoverError(
-			"E_MAIL_INVALID_MESSAGE",
+		throw new E_MAIL_INVALID_MESSAGE([
 			`The value of header ${JSON.stringify(name)} must be a string.`,
-		);
+		]);
 	}
 	assertHeaderSafe(value, `value of header ${JSON.stringify(name)}`);
 	return value;

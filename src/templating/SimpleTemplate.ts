@@ -1,6 +1,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { RoverError } from "../RoverError.js";
+import {
+	E_MAIL_TEMPLATE_NOT_FOUND,
+	E_MAIL_TEMPLATE_READ_ERROR,
+	E_MAIL_TEMPLATE_SYNTAX,
+} from "../errors.js";
 import { getNative, type NativeRoverIr, toReamError } from "./loadNapi.js";
 
 // The compile + interpret hot path now runs in Rust via napi-rs
@@ -55,7 +59,7 @@ export async function renderFile(
 	return renderNative(ir, data, partials);
 }
 
-/** Compile inline source to an IR handle, mapping native errors to `RoverError`. */
+/** Compile inline source to an IR handle, mapping native errors to rover's errors. */
 function compileSource(source: string): NativeRoverIr {
 	try {
 		return getNative().compile(source);
@@ -84,21 +88,19 @@ function dataReplacer(key: string, value: unknown): unknown {
 		if (value >= MIN_SAFE_BIGINT && value <= MAX_SAFE_BIGINT) {
 			return Number(value);
 		}
-		throw new RoverError(
-			"E_MAIL_TEMPLATE_SYNTAX",
+		throw new E_MAIL_TEMPLATE_SYNTAX([
 			`Cannot render bigint ${value}${at} — it exceeds Number.MAX_SAFE_INTEGER and cannot cross the template engine boundary without precision loss; format it to a string before rendering`,
-		);
+		]);
 	}
 	if (typeof value === "number" && !Number.isFinite(value)) {
-		throw new RoverError(
-			"E_MAIL_TEMPLATE_SYNTAX",
+		throw new E_MAIL_TEMPLATE_SYNTAX([
 			`Cannot render non-finite number ${value}${at} — NaN and Infinity have no representation across the template engine boundary; format it to a string before rendering`,
-		);
+		]);
 	}
 	return value;
 }
 
-/** Render a compiled IR, mapping native errors (syntax/recursion) to `RoverError`. */
+/** Render a compiled IR, mapping native errors (syntax/recursion) to rover's errors. */
 function renderNative(
 	ir: NativeRoverIr,
 	data: Record<string, unknown>,
@@ -145,26 +147,20 @@ async function loadIr(viewPath: string, root: string): Promise<NativeRoverIr> {
 		const code = errnoCode(err);
 		// Only ENOENT maps to NOT_FOUND; permission/io errors surface distinctly.
 		if (code !== "ENOENT") {
-			throw new RoverError(
-				"E_MAIL_TEMPLATE_READ_ERROR",
+			throw new E_MAIL_TEMPLATE_READ_ERROR(
 				`Template read failed at ${resolved} (${code || "unknown"})`,
-				{
-					hint: "Check filesystem permissions and file descriptor limits.",
-					context: { path: resolved, code, viewsRoot: root },
-				},
+				{ path: resolved, code, viewsRoot: root },
+				{ help: "Check filesystem permissions and file descriptor limits." },
 			);
 		}
-		throw new RoverError(
-			"E_MAIL_TEMPLATE_NOT_FOUND",
+		throw new E_MAIL_TEMPLATE_NOT_FOUND(
 			`Template not found at ${resolved}`,
 			{
-				hint: "Create the file or update config.mail.viewsRoot.",
-				context: {
-					path: resolved,
-					paths: tried.join(", "),
-					viewsRoot: root,
-				},
+				path: resolved,
+				paths: tried.join(", "),
+				viewsRoot: root,
 			},
+			{ help: "Create the file or update config.mail.viewsRoot." },
 		);
 	}
 
@@ -200,10 +196,7 @@ async function buildPartialMap(
 				// rendered. The pre-migration engine loaded partials lazily, so a
 				// missing such partial did not error. Skip it here; if it IS reached
 				// at render time the Rust renderer raises E_MAIL_TEMPLATE_NOT_FOUND.
-				if (
-					err instanceof RoverError &&
-					err.code === "E_MAIL_TEMPLATE_NOT_FOUND"
-				) {
+				if (err instanceof E_MAIL_TEMPLATE_NOT_FOUND) {
 					continue;
 				}
 				throw err;
@@ -238,12 +231,11 @@ function resolveTemplatePath(
 	const candidate = path.resolve(withExt);
 	const rel = path.relative(rootAbs, candidate);
 	if (rel.startsWith("..") || path.isAbsolute(rel)) {
-		throw new RoverError(
-			"E_MAIL_TEMPLATE_NOT_FOUND",
+		throw new E_MAIL_TEMPLATE_NOT_FOUND(
 			`Template path "${viewPath}" resolves outside of viewsRoot`,
+			{ path: candidate, viewsRoot: rootAbs },
 			{
-				hint: "Template names must stay under viewsRoot. Absolute paths and `..` traversals are rejected.",
-				context: { path: candidate, viewsRoot: rootAbs },
+				help: "Template names must stay under viewsRoot. Absolute paths and `..` traversals are rejected.",
 			},
 		);
 	}

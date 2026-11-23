@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { emitSafely } from "../emitSafely.js";
+import { E_ROVER_WEBHOOK_KEY_MISSING } from "../errors.js";
 import { field, numberField, stringField } from "../guards.js";
 import type {
 	WebhookEmitter,
@@ -81,9 +82,11 @@ export function createMailgunWebhookHandler(
 	options: MailgunWebhookOptions,
 ): WebhookMiddleware {
 	if (!options.signingKey) {
-		throw new Error(
-			"createMailgunWebhookHandler: signingKey is required for HMAC verification.",
-		);
+		throw new E_ROVER_WEBHOOK_KEY_MISSING([
+			"createMailgunWebhookHandler",
+			"signingKey",
+			"HMAC",
+		]);
 	}
 	const signingKey = options.signingKey;
 	const emitter = options.emitter;

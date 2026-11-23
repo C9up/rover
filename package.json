@@ -78,6 +78,7 @@
     "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json"
   },
   "dependencies": {
+    "@c9up/flare": "^0.1.0",
     "nodemailer": "^10.1.4"
   },
   "devDependencies": {

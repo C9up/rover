@@ -1,8 +1,8 @@
 import { Buffer } from "node:buffer";
 import { createHash, createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { E_MAIL_TRANSPORT_ERROR } from "../../src/errors.js";
 import type { MailMessage } from "../../src/index.js";
-import { RoverError } from "../../src/RoverError.js";
 import { SesTransport } from "../../src/transports/SesTransport.js";
 import { requestBody, requestHeaders } from "../__helpers__/defined.js";
 
@@ -145,7 +145,7 @@ describe("rover > SesTransport", () => {
 		expect(mime).not.toMatch(/^Bcc:/im);
 	});
 
-	it("throws E_MAIL_PROVIDER_ERROR on 400 with providerMessage", async () => {
+	it("throws E_MAIL_TRANSPORT_ERROR on 400 with providerMessage", async () => {
 		fetchSpy.mockResolvedValue(
 			new Response(
 				"<Error><Code>MessageRejected</Code><Message>Email address is not verified.</Message></Error>",
@@ -155,7 +155,7 @@ describe("rover > SesTransport", () => {
 		const t = new SesTransport(config);
 
 		await expect(t.send(baseMessage())).rejects.toMatchObject({
-			code: "E_MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_TRANSPORT_ERROR",
 			context: {
 				provider: "ses",
 				upstreamStatus: "400",
@@ -163,10 +163,12 @@ describe("rover > SesTransport", () => {
 		});
 	});
 
-	it("throws RoverError on 5xx", async () => {
+	it("throws E_MAIL_TRANSPORT_ERROR on 5xx", async () => {
 		fetchSpy.mockResolvedValue(new Response("boom", { status: 503 }));
 		const t = new SesTransport(config);
-		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(RoverError);
+		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(
+			E_MAIL_TRANSPORT_ERROR,
+		);
 	});
 
 	it("returns { providerId } from SES <MessageId> XML response", async () => {
@@ -226,12 +228,12 @@ describe("rover > SesTransport", () => {
 		expect(auth).toContain("Credential=AKIA-TEST/");
 	});
 
-	it("throws E_MAIL_PROVIDER_CONFIG when message has no recipients", async () => {
+	it("throws E_MAIL_INVALID_MESSAGE when message has no recipients", async () => {
 		const t = new SesTransport(config);
 		const msg = baseMessage();
 		msg.to = [];
 		await expect(t.send(msg)).rejects.toMatchObject({
-			code: "E_MAIL_PROVIDER_CONFIG",
+			code: "E_MAIL_INVALID_MESSAGE",
 		});
 	});
 

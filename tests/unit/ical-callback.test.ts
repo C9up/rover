@@ -7,7 +7,7 @@
  * pass the result — which is the same work, minus the ergonomics that made the
  * callback worth having.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MessageBuilder } from "../../src/MessageBuilder.js";
 
 function message(): MessageBuilder {
@@ -83,5 +83,31 @@ describe("rover > icalEvent(callback)", () => {
 			calendar.createEvent({ start: new Date(), summary: "x" });
 		});
 		expect(builder).toBeInstanceOf(MessageBuilder);
+	});
+
+	it("says ical-generator is missing with its own code", async () => {
+		vi.resetModules();
+		vi.doMock("ical-generator", () => {
+			throw new Error("Cannot find package 'ical-generator'");
+		});
+		try {
+			const { MessageBuilder: Fresh } = await import(
+				"../../src/MessageBuilder.js"
+			);
+			await expect(
+				new Fresh()
+					.from("organiser@example.com")
+					.to("guest@example.com")
+					.subject("Invitation")
+					.icalEvent(() => {})
+					.build(),
+			).rejects.toMatchObject({
+				code: "E_ROVER_ICAL_UNAVAILABLE",
+				help: expect.stringMatching(/Install ical-generator/),
+			});
+		} finally {
+			vi.doUnmock("ical-generator");
+			vi.resetModules();
+		}
 	});
 });

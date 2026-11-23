@@ -1,7 +1,16 @@
+import { AssertionError } from "node:assert";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Exception } from "@c9up/flare";
+import {
+	E_ATTACHMENT_UNREADABLE,
+	E_INVALID_LIST_HEADER,
+	E_MAIL_FIELD_UNSUPPORTED,
+	E_MAIL_INVALID_MESSAGE,
+	E_ROVER_ICAL_UNAVAILABLE,
+} from "./errors.js";
 import {
 	assertAddress,
 	assertHeaderName,
@@ -15,7 +24,7 @@ import {
 	recipientName,
 	toRecipient,
 } from "./format.js";
-import { RoverError } from "./RoverError.js";
+import { withHelp } from "./help.js";
 import { renderFile as renderTemplateFile } from "./templating/SimpleTemplate.js";
 
 /**
@@ -271,12 +280,9 @@ export function withCanonicalLineEndings(message: MailMessage): MailMessage {
 	};
 }
 
-function invalidPart(message: string, hint?: string): RoverError {
-	return new RoverError(
-		"E_MAIL_INVALID_MESSAGE",
-		message,
-		hint === undefined ? undefined : { hint },
-	);
+function invalidPart(message: string, hint?: string): Exception {
+	const error = new E_MAIL_INVALID_MESSAGE([message]);
+	return hint === undefined ? error : withHelp(error, hint);
 }
 
 /** An optional string field of a part, refused when it could break a header. */
@@ -371,10 +377,9 @@ export function assertCompiledParts(message: MailMessage): void {
  */
 export function assertHeaders(headers: unknown): void {
 	if (typeof headers !== "object" || headers === null) {
-		throw new RoverError(
-			"E_MAIL_INVALID_MESSAGE",
+		throw new E_MAIL_INVALID_MESSAGE([
 			"Mail message `headers` must be an object",
-		);
+		]);
 	}
 	for (const [name, value] of Object.entries(headers)) {
 		assertHeaderName(name);
@@ -390,10 +395,7 @@ export function assertHeaders(headers: unknown): void {
 
 export function assertEnvelope(envelope: unknown): MailEnvelope {
 	if (typeof envelope !== "object" || envelope === null) {
-		throw new RoverError(
-			"E_MAIL_INVALID_MESSAGE",
-			"The envelope must be an object",
-		);
+		throw new E_MAIL_INVALID_MESSAGE(["The envelope must be an object"]);
 	}
 	const out: MailEnvelope = {};
 	const from: unknown = Reflect.get(envelope, "from");
@@ -415,13 +417,10 @@ export function assertEnvelope(envelope: unknown): MailEnvelope {
  */
 export function assertNoEnvelope(message: MailMessage, provider: string): void {
 	if (message.envelope === undefined) return;
-	throw new RoverError(
-		"E_MAIL_FIELD_UNSUPPORTED",
+	throw new E_MAIL_FIELD_UNSUPPORTED(
 		`The ${provider} transport cannot set the SMTP envelope.`,
-		{
-			hint: "Send this message through an SMTP mailer, or drop envelope().",
-			context: { provider, field: "envelope" },
-		},
+		{ provider, field: "envelope" },
+		{ help: "Send this message through an SMTP mailer, or drop envelope()." },
 	);
 }
 
@@ -430,12 +429,11 @@ async function readAttachment(path: string, label: string): Promise<Buffer> {
 	try {
 		return await readFile(path);
 	} catch (err) {
-		throw new RoverError(
-			"E_ATTACHMENT_UNREADABLE",
-			`Could not read ${label} from "${path}": ${err instanceof Error ? err.message : String(err)}`,
-			{
-				hint: "Give an absolute path, or attach the bytes with attachData() / embedData().",
-			},
+		throw withHelp(
+			new E_ATTACHMENT_UNREADABLE([
+				`Could not read ${label} from "${path}": ${err instanceof Error ? err.message : String(err)}`,
+			]),
+			"Give an absolute path, or attach the bytes with attachData() / embedData().",
 		);
 	}
 }
@@ -453,12 +451,11 @@ const CALENDAR_FETCH_TIMEOUT_MS = 30_000;
  */
 async function fetchCalendar(url: string): Promise<string> {
 	const fail = (reason: string) =>
-		new RoverError(
-			"E_ATTACHMENT_UNREADABLE",
-			`Could not fetch the calendar event from "${url}": ${reason}`,
-			{
-				hint: "Give an https: URL that serves the ICS, or pass it to icalEvent(contents).",
-			},
+		withHelp(
+			new E_ATTACHMENT_UNREADABLE([
+				`Could not fetch the calendar event from "${url}": ${reason}`,
+			]),
+			"Give an https: URL that serves the ICS, or pass it to icalEvent(contents).",
 		);
 	if (!/^https?:\/\//i.test(url) || !URL.canParse(url)) {
 		throw fail("only http: and https: URLs are fetched");
@@ -499,10 +496,11 @@ function listEntries(
 	return [value];
 }
 
-function invalidList(message: string): RoverError {
-	return new RoverError("E_INVALID_LIST_HEADER", message, {
-		hint: "Give one https:, http:, mailto: or ftp: URL (or a bare address) per entry, without spaces or angle brackets.",
-	});
+function invalidList(message: string): Exception {
+	return withHelp(
+		new E_INVALID_LIST_HEADER([message]),
+		"Give one https:, http:, mailto: or ftp: URL (or a bare address) per entry, without spaces or angle brackets.",
+	);
 }
 
 /** No whitespace, control character or angle bracket. */
@@ -678,12 +676,11 @@ export function attachmentBytes(attachment: MailAttachment): Buffer {
 		return Buffer.from(content, "utf8");
 	}
 	if (!Buffer.isEncoding(encoding)) {
-		throw new RoverError(
-			"E_MAIL_INVALID_MESSAGE",
-			`Attachment "${attachment.filename}" has an unknown encoding ${JSON.stringify(attachment.encoding)}`,
-			{
-				hint: "Use base64, hex, latin1 or utf8, or pass the bytes as a Buffer.",
-			},
+		throw withHelp(
+			new E_MAIL_INVALID_MESSAGE([
+				`Attachment "${attachment.filename}" has an unknown encoding ${JSON.stringify(attachment.encoding)}`,
+			]),
+			"Use base64, hex, latin1 or utf8, or pass the bytes as a Buffer.",
 		);
 	}
 	return Buffer.from(content, encoding);
@@ -709,10 +706,10 @@ export function assertApiCarries(
 	support: ApiAttachmentSupport,
 ): void {
 	const unsupported = (field: string, hint: string) =>
-		new RoverError(
-			"E_MAIL_FIELD_UNSUPPORTED",
+		new E_MAIL_FIELD_UNSUPPORTED(
 			`The ${provider} API cannot carry ${field}.`,
-			{ hint, context: { provider, field } },
+			{ provider, field },
+			{ help: hint },
 		);
 	const mimeHint =
 		"Send this message through an SMTP, Mailgun, SES or SparkPost mailer, which send the full MIME message.";
@@ -757,10 +754,12 @@ export function headersWithList(
 
 function expect(passed: boolean, expectation: string, actual: unknown): void {
 	if (passed) return;
-	throw new RoverError(
-		"E_ASSERTION_FAILED",
-		`Expected the message ${expectation}, got ${JSON.stringify(actual)}`,
-	);
+	// node:assert's error, as the library's message assertions throw.
+	throw new AssertionError({
+		message: `Expected the message ${expectation}, got ${JSON.stringify(actual)}`,
+		actual,
+		stackStartFn: expect,
+	});
 }
 
 /**
@@ -1332,12 +1331,11 @@ export class MessageBuilder {
 			for (const url of listUrls(value)) {
 				// RFC 8058 §3.1: the one-click target MUST be HTTPS.
 				if (!URL.canParse(url) || new URL(url).protocol !== "https:") {
-					throw new RoverError(
-						"E_INVALID_LIST_HEADER",
-						`listUnsubscribe({ oneClick: true }) needs an https URL that can answer a POST, got "${url}".`,
-						{
-							hint: "Keep the mailto: form without oneClick, or add an https endpoint alongside it.",
-						},
+					throw withHelp(
+						new E_INVALID_LIST_HEADER([
+							`listUnsubscribe({ oneClick: true }) needs an https URL that can answer a POST, got "${url}".`,
+						]),
+						"Keep the mailto: form without oneClick, or add an https endpoint alongside it.",
 					);
 				}
 			}
@@ -1590,29 +1588,26 @@ async function renderCalendar(build: CalendarEventCallback): Promise<string> {
 		const mod: { default?: unknown } = await import("ical-generator");
 		factory = mod.default;
 	} catch (cause) {
-		throw new RoverError(
-			"E_MAIL_PROVIDER_CONFIG",
-			"icalEvent(callback) needs the `ical-generator` package, which is not installed.",
-			{
-				hint: "Install ical-generator, or pass the ICS yourself with icalEvent(contents).",
-				context: {
-					reason: cause instanceof Error ? cause.message : String(cause),
-				},
-			},
+		throw withHelp(
+			new E_ROVER_ICAL_UNAVAILABLE(
+				[
+					"icalEvent(callback) needs the `ical-generator` package, which is not installed.",
+				],
+				{ cause },
+			),
+			"Install ical-generator, or pass the ICS yourself with icalEvent(contents).",
 		);
 	}
 	if (typeof factory !== "function") {
-		throw new RoverError(
-			"E_MAIL_PROVIDER_CONFIG",
+		throw new E_ROVER_ICAL_UNAVAILABLE([
 			"`ical-generator` did not export a calendar factory.",
-		);
+		]);
 	}
 	const calendar: unknown = factory();
 	if (!isCalendarBuilder(calendar)) {
-		throw new RoverError(
-			"E_MAIL_PROVIDER_CONFIG",
+		throw new E_ROVER_ICAL_UNAVAILABLE([
 			"`ical-generator` returned an object without createEvent()/toString().",
-		);
+		]);
 	}
 	build(calendar);
 	return calendar.toString();

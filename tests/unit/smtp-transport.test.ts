@@ -1,8 +1,8 @@
 import nodemailer, { type SendMailOptions } from "nodemailer";
 import { describe, expect, it, vi } from "vitest";
+import { E_MAIL_TRANSPORT_ERROR } from "../../src/errors.js";
 import type { MailMessage } from "../../src/index.js";
 import { SmtpTransport } from "../../src/index.js";
-import { RoverError } from "../../src/RoverError.js";
 import { defined } from "../__helpers__/defined.js";
 
 const baseMessage = (): MailMessage => ({
@@ -78,13 +78,13 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 		]);
 	});
 
-	it("throws E_MAIL_PROVIDER_CONFIG when message has no recipients", async () => {
+	it("throws E_MAIL_INVALID_MESSAGE when message has no recipients", async () => {
 		const transporter = makeFakeTransporter({});
 		const t = new SmtpTransport({ host: "m" }, { transporter });
 		const msg = baseMessage();
 		msg.to = [];
 		await expect(t.send(msg)).rejects.toMatchObject({
-			code: "E_MAIL_PROVIDER_CONFIG",
+			code: "E_MAIL_INVALID_MESSAGE",
 		});
 	});
 
@@ -95,7 +95,7 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 		const transporter = makeFakeTransporter({ throwError: netErr });
 		const t = new SmtpTransport({ host: "m" }, { transporter });
 		await expect(t.send(baseMessage())).rejects.toMatchObject({
-			code: "E_MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_TRANSPORT_ERROR",
 			context: {
 				provider: "smtp",
 				networkCode: "ECONNRESET",
@@ -144,12 +144,14 @@ describe("rover > SmtpTransport (nodemailer)", () => {
 		).not.toThrow();
 	});
 
-	it("wraps errors as RoverError instances", async () => {
+	it("wraps errors as E_MAIL_TRANSPORT_ERROR instances", async () => {
 		const transporter = makeFakeTransporter({
 			throwError: new Error("boom"),
 		});
 		const t = new SmtpTransport({ host: "m" }, { transporter });
-		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(RoverError);
+		await expect(t.send(baseMessage())).rejects.toBeInstanceOf(
+			E_MAIL_TRANSPORT_ERROR,
+		);
 	});
 });
 

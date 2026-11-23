@@ -35,7 +35,7 @@ describe("rover > SMTP retry follows RFC 5321 reply classes", () => {
 	it("does not repeat a permanent 5xx rejection (550 user unknown)", async () => {
 		server = await startFakeSmtp({ rcptReply: "550 5.1.1 user unknown" });
 		await expect(send(mailFor(server.port))).rejects.toMatchObject({
-			code: "E_MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_TRANSPORT_ERROR",
 			context: { upstreamStatus: "550", attempts: "1" },
 		});
 		expect(count(server.commands(), "RCPT")).toBe(1);

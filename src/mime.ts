@@ -9,6 +9,7 @@
 
 import nodemailer, { type Transport } from "nodemailer";
 import type Mail from "nodemailer/lib/mailer/index.js";
+import { E_ROVER_INTERNAL } from "./errors.js";
 import { recipientAddress, toNodemailerAddress } from "./format.js";
 import {
 	assertCompiledParts,
@@ -139,7 +140,10 @@ export async function composeMime(message: MailMessage): Promise<ComposedMime> {
 		send(mail, callback) {
 			const node = mail.message;
 			if (node === null) {
-				callback(new Error("nodemailer composed no message"), undefined);
+				callback(
+					new E_ROVER_INTERNAL(["nodemailer composed no message"]),
+					undefined,
+				);
 				return;
 			}
 			node.build().then(
@@ -159,7 +163,9 @@ export async function composeMime(message: MailMessage): Promise<ComposedMime> {
 		.createTransport(capture)
 		.sendMail(nodemailerOptions(withCanonicalLineEndings(message)));
 	if (composed === undefined) {
-		throw new Error("nodemailer finished without composing the message");
+		throw new E_ROVER_INTERNAL([
+			"nodemailer finished without composing the message",
+		]);
 	}
 	return composed;
 }

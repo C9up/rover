@@ -564,7 +564,12 @@ describe("rover > the Resend signing secret is validated at config time", () => 
 				secret: "whsec_not base64 at all!!",
 				emitter: silentEmitter,
 			}),
-		).toThrow(/not valid base64/);
+		).toThrow(
+			expect.objectContaining({
+				code: "E_ROVER_WEBHOOK_INVALID_SECRET",
+				message: expect.stringMatching(/not valid base64/),
+			}),
+		);
 	});
 
 	it("refuses a secret too short to sign with", () => {
@@ -573,12 +578,22 @@ describe("rover > the Resend signing secret is validated at config time", () => 
 				secret: Buffer.from("short").toString("base64"),
 				emitter: silentEmitter,
 			}),
-		).toThrow(/too short to sign with/);
+		).toThrow(
+			expect.objectContaining({
+				code: "E_ROVER_WEBHOOK_INVALID_SECRET",
+				message: expect.stringMatching(/too short to sign with/),
+			}),
+		);
 	});
 
 	it("still refuses an absent secret", () => {
 		expect(() =>
 			createResendWebhookHandler({ secret: "", emitter: silentEmitter }),
-		).toThrow(/secret is required/);
+		).toThrow(
+			expect.objectContaining({
+				code: "E_ROVER_WEBHOOK_KEY_MISSING",
+				message: expect.stringMatching(/secret is required/),
+			}),
+		);
 	});
 });

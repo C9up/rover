@@ -7,8 +7,8 @@
  */
 import { Buffer } from "node:buffer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { E_MAIL_TRANSPORT_ERROR } from "../../src/errors.js";
 import type { MailMessage } from "../../src/index.js";
-import type { RoverError } from "../../src/RoverError.js";
 import { BrevoTransport } from "../../src/transports/BrevoTransport.js";
 import { requestInit } from "../__helpers__/defined.js";
 
@@ -59,7 +59,13 @@ describe("rover > BrevoTransport", () => {
 	});
 
 	it("refuses to exist without an API key", () => {
-		expect(() => new BrevoTransport({})).toThrow(/requires apiKey/);
+		expect(() => new BrevoTransport({})).toThrow(
+			expect.objectContaining({
+				code: "E_INVALID_CONFIG",
+				message:
+					'Invalid config for "brevo" transport. The "apiKey" property is missing',
+			}),
+		);
 	});
 
 	it("takes the key under either spelling", async () => {
@@ -205,9 +211,9 @@ describe("rover > BrevoTransport", () => {
 			await new BrevoTransport({ apiKey: "k" }).send(baseMessage());
 			expect.unreachable("a 429 has to be reported");
 		} catch (error) {
-			const rover = error as RoverError;
+			const rover = error as E_MAIL_TRANSPORT_ERROR;
 			// Retry eligibility is decided from these, so they are the payload.
-			expect(rover.code).toBe("E_MAIL_PROVIDER_ERROR");
+			expect(rover.code).toBe("E_MAIL_TRANSPORT_ERROR");
 			expect(rover.context.upstreamStatus).toBe("429");
 			expect(rover.context.retryAfter).toBe("30");
 			expect(rover.context.providerMessage).toContain("rate limited");
@@ -224,9 +230,9 @@ describe("rover > BrevoTransport", () => {
 			expect.unreachable("a 401 has to be reported");
 		} catch (error) {
 			// The provider echoes the request back; the error travels into logs.
-			expect((error as RoverError).context.providerMessage).not.toContain(
-				"sk_live_supersecret",
-			);
+			expect(
+				(error as E_MAIL_TRANSPORT_ERROR).context.providerMessage,
+			).not.toContain("sk_live_supersecret");
 		}
 	});
 

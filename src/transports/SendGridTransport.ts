@@ -1,5 +1,11 @@
+import {
+	E_INVALID_CONFIG,
+	E_MAIL_INVALID_MESSAGE,
+	E_MAIL_TRANSPORT_ERROR,
+} from "../errors.js";
 import { contactOf } from "../format.js";
 import { field, numberField, stringField } from "../guards.js";
+import { withHelp } from "../help.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
@@ -14,7 +20,6 @@ import {
 	headersForApi,
 	headerValue,
 } from "../MessageBuilder.js";
-import { RoverError } from "../RoverError.js";
 import { apiBaseUrl } from "./baseUrl.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
@@ -39,10 +44,11 @@ export class SendGridTransport implements MailTransport {
 		const apiKey =
 			typeof config.apiKey === "string" ? normalizeConfig(config.apiKey) : "";
 		if (!apiKey) {
-			throw new RoverError(
-				"E_MAIL_PROVIDER_CONFIG",
-				"SendGrid transport requires apiKey",
-				{ hint: "Set { apiKey } in your mail config." },
+			throw withHelp(
+				new E_INVALID_CONFIG(
+					'Invalid config for "sendgrid" transport. The "apiKey" property is missing',
+				),
+				"Set { apiKey } in your mail config.",
 			);
 		}
 
@@ -156,10 +162,9 @@ function assertHasRecipients(message: MailMessage): void {
 		message.cc.length === 0 &&
 		message.bcc.length === 0
 	) {
-		throw new RoverError(
-			"E_MAIL_PROVIDER_CONFIG",
-			"Mail message has no recipients",
-			{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
+		throw withHelp(
+			new E_MAIL_INVALID_MESSAGE(["Mail message has no recipients"]),
+			"Set at least one `to`, `cc`, or `bcc` before sending.",
 		);
 	}
 }
@@ -184,8 +189,8 @@ function buildSendGridContent(
 	return [first, ...rest];
 }
 
-function wrapSendGridError(err: unknown): RoverError {
-	if (err instanceof RoverError) return err;
+function wrapSendGridError(err: unknown): E_MAIL_TRANSPORT_ERROR {
+	if (err instanceof E_MAIL_TRANSPORT_ERROR) return err;
 	// Built from the HTTP response here, but the older SDK shape
 	// (`{ code, message, response: { body, headers, statusCode } }`) is still
 	// accepted so an injected fake or a wrapped error maps the same way.
@@ -217,12 +222,11 @@ function wrapSendGridError(err: unknown): RoverError {
 	if (code !== undefined) ctx.networkCode = code;
 	const retryAfter = stringField(field(response, "headers"), "retry-after");
 	if (retryAfter) ctx.retryAfter = retryAfter;
-	return new RoverError(
-		"E_MAIL_PROVIDER_ERROR",
+	return new E_MAIL_TRANSPORT_ERROR(
 		`SendGrid returned ${status || "unknown"}`,
 		{
-			hint: "Inspect `context.upstreamStatus` (HTTP) or `context.networkCode` (ECONNRESET/etc.) to decide retry eligibility. `context.retryAfter` (when set) carries the provider's backoff hint in seconds.",
 			context: ctx,
+			help: "Inspect `context.upstreamStatus` (HTTP) or `context.networkCode` (ECONNRESET/etc.) to decide retry eligibility. `context.retryAfter` (when set) carries the provider's backoff hint in seconds.",
 		},
 	);
 }

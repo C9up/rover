@@ -1,5 +1,7 @@
+import { AssertionError } from "node:assert";
 import type { PluginApi } from "@c9up/helix";
 import { BaseMail } from "../BaseMail.js";
+import { E_ROVER_INVALID_PREDICATE } from "../errors.js";
 import {
 	formatRecipient,
 	type Recipient,
@@ -176,17 +178,17 @@ export class FakeMail implements MailTransport {
 
 	assertNoneSent(): void {
 		if (this.#sent.length !== 0) {
-			throw new Error(
-				`mail.assertNoneSent() failed — expected zero sent messages, found ${this.#sent.length}.\n${describeCaptured(this.#sent)}`,
-			);
+			throw new AssertionError({
+				message: `mail.assertNoneSent() failed — expected zero sent messages, found ${this.#sent.length}.\n${describeCaptured(this.#sent)}`,
+			});
 		}
 	}
 
 	assertNoneQueued(): void {
 		if (this.#queued.length !== 0) {
-			throw new Error(
-				`mail.assertNoneQueued() failed — expected zero queued messages, found ${this.#queued.length}.\n${describeCaptured(this.#queued)}`,
-			);
+			throw new AssertionError({
+				message: `mail.assertNoneQueued() failed — expected zero queued messages, found ${this.#queued.length}.\n${describeCaptured(this.#queued)}`,
+			});
 		}
 	}
 
@@ -217,9 +219,9 @@ export class FakeMail implements MailTransport {
 		const reason = expectPresent
 			? `no ${bucket} message matches ${target}`
 			: `at least one ${bucket} message matches ${target}`;
-		throw new Error(
-			`mail.${method}() failed — ${reason}.\n${describeCaptured(entries)}`,
-		);
+		throw new AssertionError({
+			message: `mail.${method}() failed — ${reason}.\n${describeCaptured(entries)}`,
+		});
 	}
 
 	#assertCount(
@@ -230,9 +232,9 @@ export class FakeMail implements MailTransport {
 	): void {
 		if (typeof arg === "number") {
 			if (entries.length !== arg) {
-				throw new Error(
-					`mail.${method}() failed — expected ${arg}, found ${entries.length}.\n${describeCaptured(entries)}`,
-				);
+				throw new AssertionError({
+					message: `mail.${method}() failed — expected ${arg}, found ${entries.length}.\n${describeCaptured(entries)}`,
+				});
 			}
 			return;
 		}
@@ -241,9 +243,9 @@ export class FakeMail implements MailTransport {
 			(e) => e.mail !== undefined && e.mail instanceof arg,
 		).length;
 		if (actual !== expected) {
-			throw new Error(
-				`mail.${method}() failed — expected ${expected} of ${arg.name}, found ${actual}.\n${describeCaptured(entries)}`,
-			);
+			throw new AssertionError({
+				message: `mail.${method}() failed — expected ${expected} of ${arg.name}, found ${actual}.\n${describeCaptured(entries)}`,
+			});
 		}
 	}
 }
@@ -291,9 +293,7 @@ function makeMatcher(
 	if (typeof predicate === "function") return predicate;
 	const p = predicate;
 	if (p.containing !== undefined && p.containing === "") {
-		throw new Error(
-			"FakeMail: `containing` predicate cannot be an empty string — it would match every captured message. Pass a non-empty needle.",
-		);
+		throw new E_ROVER_INVALID_PREDICATE();
 	}
 	return (m) => {
 		if (p.from !== undefined && !matchesAddress(m.from, p.from)) return false;

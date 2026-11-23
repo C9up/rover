@@ -1,6 +1,10 @@
 import { Buffer } from "node:buffer";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { emitSafely } from "../emitSafely.js";
+import {
+	E_ROVER_WEBHOOK_INVALID_SECRET,
+	E_ROVER_WEBHOOK_KEY_MISSING,
+} from "../errors.js";
 import { field, stringField } from "../guards.js";
 import type {
 	WebhookEmitter,
@@ -62,14 +66,14 @@ function decodeSigningSecret(value: string): Buffer {
 	const bytes = Buffer.from(value, "base64");
 	const normalize = (v: string) => v.replace(/=+$/, "").replace(/\s/g, "");
 	if (normalize(bytes.toString("base64")) !== normalize(value)) {
-		throw new Error(
-			"createResendWebhookHandler: secret is not valid base64. Copy it from the Resend dashboard — it looks like `whsec_<base64>`.",
-		);
+		throw new E_ROVER_WEBHOOK_INVALID_SECRET([
+			"secret is not valid base64. Copy it from the Resend dashboard — it looks like `whsec_<base64>`.",
+		]);
 	}
 	if (bytes.length < 16) {
-		throw new Error(
-			`createResendWebhookHandler: secret decodes to ${bytes.length} bytes, which is too short to sign with. Expected at least 16.`,
-		);
+		throw new E_ROVER_WEBHOOK_INVALID_SECRET([
+			`secret decodes to ${bytes.length} bytes, which is too short to sign with. Expected at least 16.`,
+		]);
 	}
 	return bytes;
 }
@@ -78,9 +82,11 @@ export function createResendWebhookHandler(
 	options: ResendWebhookOptions,
 ): WebhookMiddleware {
 	if (!options.secret) {
-		throw new Error(
-			"createResendWebhookHandler: secret is required for HMAC verification.",
-		);
+		throw new E_ROVER_WEBHOOK_KEY_MISSING([
+			"createResendWebhookHandler",
+			"secret",
+			"HMAC",
+		]);
 	}
 	const secretRaw = options.secret.startsWith("whsec_")
 		? options.secret.slice(6)

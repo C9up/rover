@@ -91,6 +91,16 @@ describe("rover > the assertions throw on a mismatch", () => {
 		});
 	}
 
+	it("throws node:assert's AssertionError, as the mail library does", () => {
+		expect(() => filled().assertSubject("Something else")).toThrow(
+			expect.objectContaining({
+				name: "AssertionError",
+				code: "ERR_ASSERTION",
+				actual: "Quarterly report",
+			}),
+		);
+	});
+
 	it("reports what the message actually held, not just that it failed", () => {
 		// A failure that does not show the actual value sends the reader back to
 		// the code to find out what was there.

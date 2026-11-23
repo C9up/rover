@@ -1,5 +1,12 @@
+import {
+	E_INVALID_CONFIG,
+	E_MAIL_FIELD_UNSUPPORTED,
+	E_MAIL_INVALID_MESSAGE,
+	E_MAIL_TRANSPORT_ERROR,
+} from "../errors.js";
 import { contactOf } from "../format.js";
 import { stringField } from "../guards.js";
+import { withHelp } from "../help.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
@@ -14,7 +21,6 @@ import {
 	headersForApi,
 	headerValue,
 } from "../MessageBuilder.js";
-import { RoverError } from "../RoverError.js";
 import { apiBaseUrl } from "./baseUrl.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
@@ -68,10 +74,11 @@ export class BrevoTransport implements MailTransport {
 					? normalizeConfig(config.key)
 					: "";
 		if (!apiKey) {
-			throw new RoverError(
-				"E_MAIL_PROVIDER_CONFIG",
-				"Brevo transport requires apiKey",
-				{ hint: "Set { apiKey } in your mail config." },
+			throw withHelp(
+				new E_INVALID_CONFIG(
+					'Invalid config for "brevo" transport. The "apiKey" property is missing',
+				),
+				"Set { apiKey } in your mail config.",
 			);
 		}
 		this.#apiKey = apiKey;
@@ -96,20 +103,18 @@ export class BrevoTransport implements MailTransport {
 			message.cc.length === 0 &&
 			message.bcc.length === 0
 		) {
-			throw new RoverError(
-				"E_MAIL_PROVIDER_CONFIG",
-				"Mail message has no recipients",
-				{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
+			throw withHelp(
+				new E_MAIL_INVALID_MESSAGE(["Mail message has no recipients"]),
+				"Set at least one `to`, `cc`, or `bcc` before sending.",
 			);
 		}
 		const replyTo = message.replyTo ?? [];
 		if (replyTo.length > 1) {
-			throw new RoverError(
-				"E_MAIL_FIELD_UNSUPPORTED",
+			throw new E_MAIL_FIELD_UNSUPPORTED(
 				"Brevo accepts a single Reply-To address",
+				{ provider: "brevo", field: "replyTo" },
 				{
-					hint: "Call replyTo() once for this mailer, or send through one that takes several.",
-					context: { provider: "brevo", field: "replyTo" },
+					help: "Call replyTo() once for this mailer, or send through one that takes several.",
 				},
 			);
 		}
@@ -164,14 +169,10 @@ export class BrevoTransport implements MailTransport {
 				providerMessage,
 			};
 			if (retryAfter) ctx.retryAfter = retryAfter;
-			throw new RoverError(
-				"E_MAIL_PROVIDER_ERROR",
-				`Brevo returned ${res.status}`,
-				{
-					hint: "Inspect `context.upstreamStatus` to decide retry eligibility. `context.retryAfter` (when set) carries the provider's backoff hint in seconds.",
-					context: ctx,
-				},
-			);
+			throw new E_MAIL_TRANSPORT_ERROR(`Brevo returned ${res.status}`, {
+				context: ctx,
+				help: "Inspect `context.upstreamStatus` to decide retry eligibility. `context.retryAfter` (when set) carries the provider's backoff hint in seconds.",
+			});
 		}
 		// Success: Brevo returns `{ messageId: "<id>" }`.
 		try {

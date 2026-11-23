@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { E_MAIL_TRANSPORT_ERROR } from "../../src/errors.js";
 import {
 	type EmitterLike,
 	Mail,
@@ -13,7 +14,6 @@ import {
 	MessageBuilder,
 	registerTransport,
 } from "../../src/index.js";
-import { RoverError } from "../../src/RoverError.js";
 import { defined, stringField } from "../__helpers__/defined.js";
 
 class PassTransport implements MailTransport {
@@ -48,8 +48,8 @@ class SpyEmitter implements EmitterLike {
 	}
 }
 
-const providerError = (status: number): RoverError =>
-	new RoverError("E_MAIL_PROVIDER_ERROR", `provider returned ${status}`, {
+const providerError = (status: number): E_MAIL_TRANSPORT_ERROR =>
+	new E_MAIL_TRANSPORT_ERROR(`provider returned ${status}`, {
 		context: {
 			provider: "test",
 			upstreamStatus: String(status),
@@ -177,7 +177,7 @@ describe("rover > delivery events", () => {
 
 		await expect(
 			mail.send((m) => m.to("u@x.com").subject("Hi")),
-		).rejects.toBeInstanceOf(RoverError);
+		).rejects.toBeInstanceOf(E_MAIL_TRANSPORT_ERROR);
 
 		const failed = emitter.events.find((e) => e.name === "mail:failed");
 		expect(failed).toBeDefined();
@@ -185,7 +185,7 @@ describe("rover > delivery events", () => {
 			error: { code: string; upstreamStatus?: number; attempts: number };
 			to: string[];
 		};
-		expect(data.error.code).toBe("E_MAIL_PROVIDER_ERROR");
+		expect(data.error.code).toBe("E_MAIL_TRANSPORT_ERROR");
 		expect(data.error.upstreamStatus).toBe(503);
 		expect(data.error.attempts).toBe(2);
 		expect(data.to).toEqual(["u@x.com"]);

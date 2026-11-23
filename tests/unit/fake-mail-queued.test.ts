@@ -137,6 +137,12 @@ describe("rover > the queued bucket", () => {
 		expect(() => fake.assertNotQueued({ to: "user@acme.test" })).toThrow(
 			/assertNotQueued/,
 		);
+		expect(() => fake.assertNotQueued({ to: "user@acme.test" })).toThrow(
+			expect.objectContaining({
+				name: "AssertionError",
+				code: "ERR_ASSERTION",
+			}),
+		);
 	});
 
 	it("answers assertQueued on the mail class it came from", async () => {
@@ -183,6 +189,12 @@ describe("rover > counting what was sent and queued", () => {
 		}).not.toThrow();
 
 		expect(() => fake.assertSentCount(2)).toThrow(/expected 2, found 1/);
+		expect(() => fake.assertSentCount(2)).toThrow(
+			expect.objectContaining({
+				name: "AssertionError",
+				code: "ERR_ASSERTION",
+			}),
+		);
 		expect(() => fake.assertQueuedCount(1)).toThrow(/expected 1, found 2/);
 	});
 
@@ -202,6 +214,12 @@ describe("rover > counting what was sent and queued", () => {
 		expect(() => fake.assertSentCount(WelcomeMail, 1)).toThrow(
 			/expected 1 of WelcomeMail, found 2/,
 		);
+		expect(() => fake.assertSentCount(WelcomeMail, 1)).toThrow(
+			expect.objectContaining({
+				name: "AssertionError",
+				code: "ERR_ASSERTION",
+			}),
+		);
 	});
 
 	it("asserts nothing happened at all", async () => {
@@ -217,6 +235,12 @@ describe("rover > counting what was sent and queued", () => {
 		await mail.sendLater((m) => m.to("b@acme.test").subject("Q"));
 
 		expect(() => fake.assertNoneSent()).toThrow(/found 1/);
+		expect(() => fake.assertNoneSent()).toThrow(
+			expect.objectContaining({
+				name: "AssertionError",
+				code: "ERR_ASSERTION",
+			}),
+		);
 		expect(() => fake.assertNoneQueued()).toThrow(/found 1/);
 	});
 });

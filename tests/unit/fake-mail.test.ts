@@ -131,7 +131,12 @@ describe("rover > FakeMail / Mail.fake()", () => {
 	it("fake() twice throws (prevents nested fakes)", () => {
 		const mail = makeMail("tail-fake-9", new TailTransport());
 		mail.fake();
-		expect(() => mail.fake()).toThrow("already active");
+		expect(() => mail.fake()).toThrow(
+			expect.objectContaining({
+				code: "E_ROVER_FAKE_ACTIVE",
+				message: expect.stringContaining("already active"),
+			}),
+		);
 	});
 
 	it("restore() re-installs the original transport", async () => {
@@ -176,7 +181,10 @@ describe("rover > FakeMail / Mail.fake()", () => {
 		await mail.send((m) => m.to("u@x.com").subject("S").html("<p>Hi</p>"));
 
 		expect(() => fake.assertSent({ containing: "" })).toThrow(
-			/cannot be an empty string/,
+			expect.objectContaining({
+				code: "E_ROVER_INVALID_PREDICATE",
+				message: expect.stringMatching(/cannot be an empty string/),
+			}),
 		);
 	});
 

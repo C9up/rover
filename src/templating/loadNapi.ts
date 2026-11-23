@@ -4,10 +4,17 @@
 // `pnpm --filter @c9up/rover build:napi`.
 //
 // Per cerebrum 2026-04-15 there is NO JS fallback. If the binary fails to load,
-// consumers get a typed `RoverError`. Zero `as` / `any` per `feedback_no_any_types`
+// consumers get a typed rover error. Zero `as` / `any` per `feedback_no_any_types`
 // — every boundary is narrowed with a type guard.
 
-import { RoverError } from "../RoverError.js";
+import { Exception } from "@c9up/flare";
+import {
+	E_MAIL_TEMPLATE_NAPI_REQUIRED,
+	E_MAIL_TEMPLATE_NOT_FOUND,
+	E_MAIL_TEMPLATE_RECURSION,
+	E_MAIL_TEMPLATE_SYNTAX,
+} from "../errors.js";
+import { withHelp } from "../help.js";
 import {
 	hasFunctions,
 	loadNativeBinary,
@@ -51,21 +58,22 @@ export function getNative(): NativeExports {
 	}
 	const { suffix, cause } = attempt;
 	if (suffix === undefined) {
-		throw new RoverError(
-			"E_MAIL_TEMPLATE_NAPI_REQUIRED",
-			`No @c9up/rover native binary for this platform. Supported: ${supportedTargets().join(", ")}.`,
-			{
-				hint: "Build the native binary on a supported platform with 'pnpm --filter @c9up/rover build:napi'.",
-			},
+		throw withHelp(
+			new E_MAIL_TEMPLATE_NAPI_REQUIRED([
+				`No @c9up/rover native binary for this platform. Supported: ${supportedTargets().join(", ")}.`,
+			]),
+			"Build the native binary on a supported platform with 'pnpm --filter @c9up/rover build:napi'.",
 		);
 	}
 	const causeMessage = cause instanceof Error ? cause.message : String(cause);
-	throw new RoverError(
-		"E_MAIL_TEMPLATE_NAPI_REQUIRED",
-		`@c9up/rover native binary 'index.${suffix}.node' not found, failed to load, or is stale — run 'pnpm --filter @c9up/rover build:napi' to build it.${muslHint()} Cause: ${causeMessage}`,
-		{
-			hint: "Run 'pnpm --filter @c9up/rover build:napi' to compile the native template engine.",
-		},
+	throw withHelp(
+		new E_MAIL_TEMPLATE_NAPI_REQUIRED(
+			[
+				`@c9up/rover native binary 'index.${suffix}.node' not found, failed to load, or is stale — run 'pnpm --filter @c9up/rover build:napi' to build it.${muslHint()} Cause: ${causeMessage}`,
+			],
+			{ cause },
+		),
+		"Run 'pnpm --filter @c9up/rover build:napi' to compile the native template engine.",
 	);
 }
 
@@ -86,24 +94,43 @@ function isNapiErrorPayload(value: unknown): value is NapiErrorPayload {
 	);
 }
 
-/** Codes the Rust engine legitimately emits, with their actionable hints. */
-const CODE_HINTS: Readonly<Record<string, string>> = {
-	E_MAIL_TEMPLATE_SYNTAX:
-		"Check the template grammar: {{ var }}, {{{ raw }}}, {{#if x}}...{{/if}}, {{> partial}}.",
-	E_MAIL_TEMPLATE_RECURSION:
-		"Break the cycle — a template cannot include itself (directly or via partials).",
-	E_MAIL_TEMPLATE_NOT_FOUND:
-		"Create the referenced partial file or remove the {{> name}} reference.",
+/**
+ * The codes the Rust engine puts in its `{code,message}` envelope, each with
+ * the class it maps to and an actionable help text.
+ */
+const NATIVE_ERRORS: Readonly<
+	Record<string, (message: string, cause: Error) => Exception>
+> = {
+	E_MAIL_TEMPLATE_SYNTAX: (message, cause) =>
+		withHelp(
+			new E_MAIL_TEMPLATE_SYNTAX([message], { cause }),
+			"Check the template grammar: {{ var }}, {{{ raw }}}, {{#if x}}...{{/if}}, {{> partial}}.",
+		),
+	E_MAIL_TEMPLATE_RECURSION: (message, cause) =>
+		withHelp(
+			new E_MAIL_TEMPLATE_RECURSION([message], { cause }),
+			"Break the cycle — a template cannot include itself (directly or via partials).",
+		),
+	E_MAIL_TEMPLATE_NOT_FOUND: (message, cause) =>
+		new E_MAIL_TEMPLATE_NOT_FOUND(
+			message,
+			{},
+			{
+				help: "Create the referenced partial file or remove the {{> name}} reference.",
+				cause,
+			},
+		),
 };
 
 /**
- * Translate a thrown value from a native call into a `RoverError`.
- * Already a `RoverError` (e.g. the loader threw) → pass through. A `napi::Error`
- * carrying our `{code,message}` JSON envelope → reconstruct typed (line numbers
- * preserved in `message`). Anything else → wrap as a syntax error.
+ * Translate a thrown value from a native call into a rover error. Already
+ * one (e.g. the loader threw) → pass through. A `napi::Error` carrying our
+ * `{code,message}` JSON envelope → the matching class, the native error as
+ * `cause` (line numbers preserved in `message`). Anything else → wrap as a
+ * syntax error.
  */
-export function toReamError(err: unknown): RoverError {
-	if (err instanceof RoverError) return err;
+export function toReamError(err: unknown): Exception {
+	if (err instanceof Exception) return err;
 	if (err instanceof Error) {
 		let parsed: unknown;
 		try {
@@ -112,18 +139,15 @@ export function toReamError(err: unknown): RoverError {
 			parsed = undefined;
 		}
 		if (isNapiErrorPayload(parsed)) {
-			const hint = CODE_HINTS[parsed.code];
-			if (hint !== undefined) {
-				return new RoverError(parsed.code, parsed.message, { hint });
-			}
+			const build = NATIVE_ERRORS[parsed.code];
+			if (build !== undefined) return build(parsed.message, err);
 		}
-		return new RoverError(
-			"E_MAIL_TEMPLATE_SYNTAX",
-			`Native template call failed: ${err.message}`,
+		return new E_MAIL_TEMPLATE_SYNTAX(
+			[`Native template call failed: ${err.message}`],
+			{ cause: err },
 		);
 	}
-	return new RoverError(
-		"E_MAIL_TEMPLATE_SYNTAX",
+	return new E_MAIL_TEMPLATE_SYNTAX([
 		`Native template call failed with non-Error: ${String(err)}`,
-	);
+	]);
 }

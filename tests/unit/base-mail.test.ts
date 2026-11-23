@@ -243,7 +243,12 @@ describe("rover > BaseMail", () => {
 		expect(() => {
 			// @ts-expect-error -- deliberately bypassing the abstract-class check at runtime
 			new BaseMail();
-		}).toThrow("abstract");
+		}).toThrow(
+			expect.objectContaining({
+				code: "E_ROVER_ABSTRACT_MAIL",
+				message: expect.stringContaining("abstract"),
+			}),
+		);
 	});
 
 	it("does not mutate builder internal state when filling config.from fallback", async () => {

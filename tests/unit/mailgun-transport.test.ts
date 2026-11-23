@@ -8,8 +8,8 @@
  */
 import { Buffer } from "node:buffer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { E_MAIL_TRANSPORT_ERROR } from "../../src/errors.js";
 import type { MailMessage } from "../../src/index.js";
-import type { RoverError } from "../../src/RoverError.js";
 import { MailgunTransport } from "../../src/transports/MailgunTransport.js";
 import { requestInit } from "../__helpers__/defined.js";
 
@@ -154,9 +154,9 @@ describe("rover > MailgunTransport", () => {
 
 		const error = (await transport()
 			.send(baseMessage())
-			.catch((e: unknown) => e)) as RoverError;
+			.catch((e: unknown) => e)) as E_MAIL_TRANSPORT_ERROR;
 
-		expect(error.code).toBe("E_MAIL_PROVIDER_ERROR");
+		expect(error.code).toBe("E_MAIL_TRANSPORT_ERROR");
 		expect(error.context?.upstreamStatus).toBe("403");
 		expect(error.context?.providerMessage).toContain("not verified");
 	});
@@ -171,7 +171,7 @@ describe("rover > MailgunTransport", () => {
 
 		const error = (await transport()
 			.send(baseMessage())
-			.catch((e: unknown) => e)) as RoverError;
+			.catch((e: unknown) => e)) as E_MAIL_TRANSPORT_ERROR;
 
 		expect(error.context?.retryAfter).toBe("42");
 	});
@@ -184,9 +184,9 @@ describe("rover > MailgunTransport", () => {
 
 		const error = (await transport()
 			.send(baseMessage())
-			.catch((e: unknown) => e)) as RoverError;
+			.catch((e: unknown) => e)) as E_MAIL_TRANSPORT_ERROR;
 
-		expect(error.code).toBe("E_MAIL_PROVIDER_ERROR");
+		expect(error.code).toBe("E_MAIL_TRANSPORT_ERROR");
 		expect(error.context?.networkCode).toBe("ECONNREFUSED");
 	});
 
@@ -227,10 +227,14 @@ describe("rover > MailgunTransport", () => {
 
 	it("refuses to exist without an apiKey or a domain", () => {
 		expect(() => new MailgunTransport({ domain: "d" })).toThrow(
-			/requires apiKey and domain/,
+			expect.objectContaining({
+				code: "E_INVALID_CONFIG",
+				message:
+					'Invalid config for "mailgun" transport. The "apiKey" property is missing',
+			}),
 		);
 		expect(() => new MailgunTransport({ apiKey: "k" })).toThrow(
-			/requires apiKey and domain/,
+			'Invalid config for "mailgun" transport. The "domain" property is missing',
 		);
 	});
 });

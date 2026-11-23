@@ -8,8 +8,8 @@
  */
 import { Buffer } from "node:buffer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { E_MAIL_TRANSPORT_ERROR } from "../../src/errors.js";
 import type { MailMessage } from "../../src/index.js";
-import type { RoverError } from "../../src/RoverError.js";
 import { SendGridTransport } from "../../src/transports/SendGridTransport.js";
 import { defined, requestInit } from "../__helpers__/defined.js";
 
@@ -155,9 +155,9 @@ describe("rover > SendGridTransport", () => {
 
 		const error = (await transport()
 			.send(baseMessage())
-			.catch((e: unknown) => e)) as RoverError;
+			.catch((e: unknown) => e)) as E_MAIL_TRANSPORT_ERROR;
 
-		expect(error.code).toBe("E_MAIL_PROVIDER_ERROR");
+		expect(error.code).toBe("E_MAIL_TRANSPORT_ERROR");
 		expect(error.context?.upstreamStatus).toBe("400");
 		expect(error.context?.providerMessage).toContain("bad request");
 	});
@@ -172,7 +172,7 @@ describe("rover > SendGridTransport", () => {
 
 		const error = (await transport()
 			.send(baseMessage())
-			.catch((e: unknown) => e)) as RoverError;
+			.catch((e: unknown) => e)) as E_MAIL_TRANSPORT_ERROR;
 
 		expect(error.context?.retryAfter).toBe("17");
 	});
@@ -184,9 +184,9 @@ describe("rover > SendGridTransport", () => {
 
 		const error = (await transport()
 			.send(baseMessage())
-			.catch((e: unknown) => e)) as RoverError;
+			.catch((e: unknown) => e)) as E_MAIL_TRANSPORT_ERROR;
 
-		expect(error.code).toBe("E_MAIL_PROVIDER_ERROR");
+		expect(error.code).toBe("E_MAIL_TRANSPORT_ERROR");
 		expect(error.context?.networkCode).toBe("ECONNRESET");
 	});
 
@@ -197,7 +197,13 @@ describe("rover > SendGridTransport", () => {
 	});
 
 	it("refuses to exist without an apiKey", () => {
-		expect(() => new SendGridTransport({})).toThrow(/requires apiKey/);
+		expect(() => new SendGridTransport({})).toThrow(
+			expect.objectContaining({
+				code: "E_INVALID_CONFIG",
+				message:
+					'Invalid config for "sendgrid" transport. The "apiKey" property is missing',
+			}),
+		);
 	});
 
 	it("trims whitespace and CRLF out of the key", async () => {

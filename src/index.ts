@@ -13,6 +13,7 @@ export type { MailAddress } from "./BaseMail.js";
 export { BaseMail } from "./BaseMail.js";
 export type { TransportDescriptor } from "./config.js";
 export { defineConfig, transports } from "./config.js";
+export * as errors from "./errors.js";
 export type {
 	EmitterLike,
 	MailAttachment,
@@ -60,7 +61,6 @@ export {
 	headerValue,
 	listHeaders,
 } from "./MessageBuilder.js";
-export { RoverError } from "./RoverError.js";
 export { default as RoverProvider } from "./RoverProvider.js";
 export {
 	DEFAULT_RETRY_CONFIG,

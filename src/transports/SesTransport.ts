@@ -1,12 +1,17 @@
 import { createHash, createHmac } from "node:crypto";
 import {
+	E_INVALID_CONFIG,
+	E_MAIL_INVALID_MESSAGE,
+	E_MAIL_TRANSPORT_ERROR,
+} from "../errors.js";
+import { withHelp } from "../help.js";
+import {
 	type MailMessage,
 	type MailSendOutcome,
 	type MailTransport,
 	registerTransport,
 } from "../Mail.js";
 import { composeMime } from "../mime.js";
-import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
@@ -45,20 +50,26 @@ export class SesTransport implements MailTransport {
 			typeof config.region === "string"
 				? normalizeConfig(config.region).toLowerCase()
 				: "";
-		if (!accessKeyId || !secretAccessKey || !rawRegion) {
-			throw new RoverError(
-				"E_MAIL_PROVIDER_CONFIG",
-				"SES transport requires accessKeyId, secretAccessKey, and region",
-				{ hint: "Set all three in your mail config." },
-			);
+		for (const [property, value] of [
+			["accessKeyId", accessKeyId],
+			["secretAccessKey", secretAccessKey],
+			["region", rawRegion],
+		] as const) {
+			if (!value) {
+				throw withHelp(
+					new E_INVALID_CONFIG(
+						`Invalid config for "ses" transport. The "${property}" property is missing`,
+					),
+					"Set accessKeyId, secretAccessKey and region in your mail config.",
+				);
+			}
 		}
 		if (!REGION_RE.test(rawRegion)) {
-			throw new RoverError(
-				"E_MAIL_PROVIDER_CONFIG",
-				`SES region "${rawRegion}" is not a valid AWS region identifier`,
-				{
-					hint: "Use the lowercase canonical form, e.g. 'us-east-1'. Uppercase breaks the SigV4 signing scope.",
-				},
+			throw withHelp(
+				new E_INVALID_CONFIG(
+					`SES region "${rawRegion}" is not a valid AWS region identifier`,
+				),
+				"Use the lowercase canonical form, e.g. 'us-east-1'. Uppercase breaks the SigV4 signing scope.",
 			);
 		}
 		this.#accessKeyId = accessKeyId;
@@ -73,10 +84,9 @@ export class SesTransport implements MailTransport {
 			message.cc.length === 0 &&
 			message.bcc.length === 0
 		) {
-			throw new RoverError(
-				"E_MAIL_PROVIDER_CONFIG",
-				"Mail message has no recipients",
-				{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
+			throw withHelp(
+				new E_MAIL_INVALID_MESSAGE(["Mail message has no recipients"]),
+				"Set at least one `to`, `cc`, or `bcc` before sending.",
 			);
 		}
 
@@ -112,14 +122,10 @@ export class SesTransport implements MailTransport {
 				providerMessage,
 			};
 			if (retryAfter) ctx.retryAfter = retryAfter;
-			throw new RoverError(
-				"E_MAIL_PROVIDER_ERROR",
-				`SES returned ${res.status}`,
-				{
-					hint: "Inspect `context.upstreamStatus` to decide retry eligibility. `context.retryAfter` (when set) carries the provider's backoff hint in seconds.",
-					context: ctx,
-				},
-			);
+			throw new E_MAIL_TRANSPORT_ERROR(`SES returned ${res.status}`, {
+				context: ctx,
+				help: "Inspect `context.upstreamStatus` to decide retry eligibility. `context.retryAfter` (when set) carries the provider's backoff hint in seconds.",
+			});
 		}
 		// SES XML success shape: <SendEmailResponse><SendEmailResult><MessageId>...
 		// or <SendRawEmailResult><MessageId>... — extract via a scoped regex.

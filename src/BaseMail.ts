@@ -1,3 +1,4 @@
+import { E_ROVER_ABSTRACT_MAIL } from "./errors.js";
 import { type MailMessage, MessageBuilder } from "./MessageBuilder.js";
 
 export type MailAddress = string | { address: string; name?: string };
@@ -51,9 +52,7 @@ export abstract class BaseMail {
 
 	constructor() {
 		if (new.target === BaseMail) {
-			throw new Error(
-				"BaseMail is abstract and cannot be instantiated directly",
-			);
+			throw new E_ROVER_ABSTRACT_MAIL();
 		}
 	}
 

@@ -1,5 +1,11 @@
+import {
+	E_INVALID_CONFIG,
+	E_MAIL_INVALID_MESSAGE,
+	E_MAIL_TRANSPORT_ERROR,
+} from "../errors.js";
 import { formatRecipient, type Recipient } from "../format.js";
 import { stringField } from "../guards.js";
+import { withHelp } from "../help.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
@@ -14,7 +20,6 @@ import {
 	headersForApi,
 	headerValue,
 } from "../MessageBuilder.js";
-import { RoverError } from "../RoverError.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
 const stripCrlf = (v: string): string => v.replace(/[\r\n]/g, "");
@@ -56,10 +61,11 @@ export class ResendTransport implements MailTransport {
 		const apiKey =
 			typeof config.apiKey === "string" ? normalizeConfig(config.apiKey) : "";
 		if (!apiKey) {
-			throw new RoverError(
-				"E_MAIL_PROVIDER_CONFIG",
-				"Resend transport requires apiKey",
-				{ hint: "Set { apiKey } in your mail config." },
+			throw withHelp(
+				new E_INVALID_CONFIG(
+					'Invalid config for "resend" transport. The "apiKey" property is missing',
+				),
+				"Set { apiKey } in your mail config.",
 			);
 		}
 		this.#apiKey = apiKey;
@@ -76,10 +82,9 @@ export class ResendTransport implements MailTransport {
 			message.cc.length === 0 &&
 			message.bcc.length === 0
 		) {
-			throw new RoverError(
-				"E_MAIL_PROVIDER_CONFIG",
-				"Mail message has no recipients",
-				{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
+			throw withHelp(
+				new E_MAIL_INVALID_MESSAGE(["Mail message has no recipients"]),
+				"Set at least one `to`, `cc`, or `bcc` before sending.",
 			);
 		}
 		const body: ResendBody = {
@@ -138,14 +143,10 @@ export class ResendTransport implements MailTransport {
 				providerMessage,
 			};
 			if (retryAfter) ctx.retryAfter = retryAfter;
-			throw new RoverError(
-				"E_MAIL_PROVIDER_ERROR",
-				`Resend returned ${res.status}`,
-				{
-					hint: "Inspect `context.upstreamStatus` to decide retry eligibility. `context.retryAfter` (when set) carries the provider's backoff hint in seconds.",
-					context: ctx,
-				},
-			);
+			throw new E_MAIL_TRANSPORT_ERROR(`Resend returned ${res.status}`, {
+				context: ctx,
+				help: "Inspect `context.upstreamStatus` to decide retry eligibility. `context.retryAfter` (when set) carries the provider's backoff hint in seconds.",
+			});
 		}
 		// Success: Resend returns `{ id: "<uuid>" }` per API docs.
 		try {

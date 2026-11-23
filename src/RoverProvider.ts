@@ -1,10 +1,12 @@
 import "./augmentations.js";
+import type { Exception } from "@c9up/flare";
+import { E_MAIL_CONFIG_MISSING, E_MAIL_TEMPLATE_ENGINE } from "./errors.js";
 import { field, isRecord } from "./guards.js";
+import { withHelp } from "./help.js";
 import type { EmitterLike, MailConfig } from "./Mail.js";
 import { Mail } from "./Mail.js";
 import { MessageBuilder, type TemplateEngine } from "./MessageBuilder.js";
 import type { BayQueueLike } from "./queue/MailJob.js";
-import { RoverError } from "./RoverError.js";
 import { clearMail, getMail, setMail } from "./services/main.js";
 
 /**
@@ -45,13 +47,7 @@ export default class RoverProvider {
 			// No silent fallback: a log-only mailer would boot healthy, deliver
 			// nothing and print every message, reset links included.
 			if (config === undefined || config === null) {
-				throw new RoverError(
-					"E_MAIL_CONFIG_MISSING",
-					'Invalid "config/mail.ts" file: no `mail` config is registered.',
-					{
-						hint: "Create config/mail.ts with defineConfig(), or run `ream configure @c9up/rover`.",
-					},
-				);
+				throw new E_MAIL_CONFIG_MISSING();
 			}
 			return new Mail(config, {
 				// Optional-peer wiring: if `@c9up/bay` is installed and its
@@ -134,13 +130,10 @@ function isSharingEngine(
 	return isRecord(value) && typeof value.share === "function";
 }
 
-function unusableInker(reason: string): RoverError {
-	return new RoverError(
-		"E_MAIL_TEMPLATE_ENGINE",
-		`The app uses inker, but rover cannot render mail views with it: ${reason}`,
-		{
-			hint: "Install a @c9up/inker version whose default export has share(state).render(template, data).",
-		},
+function unusableInker(reason: string): Exception {
+	return withHelp(
+		new E_MAIL_TEMPLATE_ENGINE([reason]),
+		"Install a @c9up/inker version whose default export has share(state).render(template, data).",
 	);
 }
 

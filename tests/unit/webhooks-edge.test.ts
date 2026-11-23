@@ -217,7 +217,12 @@ describe("rover > webhooks > SendGrid edge cases", () => {
 		const emitter = new Emitter();
 		expect(() =>
 			createSendGridWebhookHandler({ publicKey: "", emitter }),
-		).toThrow(/publicKey is required/);
+		).toThrow(
+			expect.objectContaining({
+				code: "E_ROVER_WEBHOOK_KEY_MISSING",
+				message: expect.stringMatching(/publicKey is required/),
+			}),
+		);
 	});
 });
 
@@ -283,6 +288,18 @@ describe("rover > webhooks > Resend edge cases", () => {
 
 describe("rover > webhooks > Mailgun edge cases", () => {
 	const signingKey = "mailgun-secret";
+
+	it("constructor throws when signingKey is empty", () => {
+		const emitter = new Emitter();
+		expect(() =>
+			createMailgunWebhookHandler({ signingKey: "", emitter }),
+		).toThrow(
+			expect.objectContaining({
+				code: "E_ROVER_WEBHOOK_KEY_MISSING",
+				message: expect.stringMatching(/signingKey is required/),
+			}),
+		);
+	});
 
 	it("ignores events with type not in EVENT_MAP", async () => {
 		const timestamp = freshTimestamp();

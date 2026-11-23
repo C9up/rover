@@ -2,13 +2,13 @@
  * `{ default, mailers }` — how a config declares several ways of sending and
  * names the one used when `send()` is called without one.
  */
+import type { Exception } from "@c9up/flare";
 import { describe, expect, it } from "vitest";
 import {
 	Mail,
 	type MailMessage,
 	type MailSendOutcome,
 	type MailTransport,
-	type RoverError,
 	registerTransport,
 	transports,
 } from "../../src/index.js";
@@ -113,8 +113,8 @@ describe("rover > mailer selection", () => {
 			new Mail({ default: "smtp", from: "noreply@example.com", mailers: {} });
 			expect.unreachable("an empty `mailers` map has to be refused");
 		} catch (error) {
-			expect((error as RoverError).code).toBe("E_MAIL_UNKNOWN_MAILER");
-			expect((error as RoverError).hint).toMatch(/No mailers are declared/);
+			expect((error as Exception).code).toBe("E_MAIL_UNKNOWN_MAILER");
+			expect((error as Exception).help).toMatch(/No mailers are declared/);
 		}
 	});
 

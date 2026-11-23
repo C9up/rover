@@ -1,10 +1,6 @@
+import type { Exception } from "@c9up/flare";
 import { describe, expect, it, vi } from "vitest";
-import {
-	Mail,
-	Mailer,
-	MessageBuilder,
-	type RoverError,
-} from "../../src/index.js";
+import { Mail, Mailer, MessageBuilder } from "../../src/index.js";
 
 describe("rover > Mail", () => {
 	it("sends through a log transport declared under `transports`", async () => {
@@ -53,8 +49,8 @@ describe("rover > Mail", () => {
 				mailers: { log: { transport: "log" } },
 			});
 		} catch (error) {
-			expect((error as RoverError).code).toBe("E_MAIL_UNKNOWN_MAILER");
-			expect((error as RoverError).hint).toContain("log");
+			expect((error as Exception).code).toBe("E_MAIL_UNKNOWN_MAILER");
+			expect((error as Exception).help).toContain("log");
 		}
 	});
 

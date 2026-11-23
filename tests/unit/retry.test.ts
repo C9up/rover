@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { E_MAIL_TRANSPORT_ERROR } from "../../src/errors.js";
 import {
 	Mail,
 	type MailMessage,
@@ -7,7 +8,6 @@ import {
 	type MailTransport,
 	registerTransport,
 } from "../../src/index.js";
-import { RoverError } from "../../src/RoverError.js";
 import { defined } from "../__helpers__/defined.js";
 
 type Step = "ok" | Error;
@@ -25,8 +25,8 @@ class ScriptedTransport implements MailTransport {
 	}
 }
 
-const providerError = (status: number): RoverError =>
-	new RoverError("E_MAIL_PROVIDER_ERROR", `provider returned ${status}`, {
+const providerError = (status: number): E_MAIL_TRANSPORT_ERROR =>
+	new E_MAIL_TRANSPORT_ERROR(`provider returned ${status}`, {
 		context: {
 			provider: "test",
 			upstreamStatus: String(status),
@@ -129,7 +129,7 @@ describe("rover > retry", () => {
 		await expect(
 			mail.send((m) => m.to("u@x.com").subject("S")),
 		).rejects.toMatchObject({
-			code: "E_MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_TRANSPORT_ERROR",
 			context: { upstreamStatus: "400" },
 		});
 		expect(transport.calls).toBe(1);
@@ -148,7 +148,7 @@ describe("rover > retry", () => {
 		await expect(
 			mail.send((m) => m.to("u@x.com").subject("S")),
 		).rejects.toMatchObject({
-			code: "E_MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_TRANSPORT_ERROR",
 			context: { upstreamStatus: "503", attempts: "3" },
 		});
 		expect(transport.calls).toBe(3);
@@ -205,7 +205,7 @@ describe("rover > retry", () => {
 
 		await expect(
 			mail.send((m) => m.to("u@x.com").subject("S")),
-		).rejects.toBeInstanceOf(RoverError);
+		).rejects.toBeInstanceOf(E_MAIL_TRANSPORT_ERROR);
 
 		expect(onFailed).toHaveBeenCalledOnce();
 		const [event] = defined(onFailed.mock.calls[0]);
@@ -265,7 +265,7 @@ describe("rover > retry", () => {
 		await expect(
 			mail.send((m) => m.to("u@x.com").subject("S")),
 		).rejects.toMatchObject({
-			code: "E_MAIL_PROVIDER_ERROR",
+			code: "E_MAIL_TRANSPORT_ERROR",
 			context: { upstreamStatus: "400" },
 		});
 		expect(onFailed).toHaveBeenCalledOnce();
@@ -300,7 +300,7 @@ describe("rover > retry", () => {
 					retry: { maxAttempts: 0, baseDelayMs: 0, factor: 1 },
 				}),
 		).not.toThrow(); // config stored — validation happens at dispatch
-		// Dispatch validates via resolveRetryConfig → throws RoverError
+		// Dispatch validates via resolveRetryConfig → throws E_MAIL_RETRY_CONFIG
 		const mail = new Mail({
 			default: "log",
 			from: "default@example.com",
@@ -312,9 +312,9 @@ describe("rover > retry", () => {
 		).rejects.toMatchObject({ code: "E_MAIL_RETRY_CONFIG" });
 	});
 
-	it("retries on E_MAIL_PROVIDER_ERROR with networkCode ECONNRESET (no HTTP status)", async () => {
+	it("retries on E_MAIL_TRANSPORT_ERROR with networkCode ECONNRESET (no HTTP status)", async () => {
 		const { isRetryableError } = await import("../../src/retry.js");
-		const err = new RoverError("E_MAIL_PROVIDER_ERROR", "socket hang up", {
+		const err = new E_MAIL_TRANSPORT_ERROR("socket hang up", {
 			context: {
 				provider: "smtp",
 				upstreamStatus: "0",
@@ -326,18 +326,14 @@ describe("rover > retry", () => {
 	});
 
 	it("honours provider Retry-After header in backoff delay", async () => {
-		const errWithRetryAfter = new RoverError(
-			"E_MAIL_PROVIDER_ERROR",
-			"provider throttled",
-			{
-				context: {
-					provider: "test",
-					upstreamStatus: "429",
-					providerMessage: "rate-limit",
-					retryAfter: "2", // seconds
-				},
+		const errWithRetryAfter = new E_MAIL_TRANSPORT_ERROR("provider throttled", {
+			context: {
+				provider: "test",
+				upstreamStatus: "429",
+				providerMessage: "rate-limit",
+				retryAfter: "2", // seconds
 			},
-		);
+		});
 		const { computeBackoffMs } = await import("../../src/retry.js");
 		const config = {
 			maxAttempts: 3,
@@ -410,11 +406,11 @@ describe("rover > retry", () => {
 			retry: { maxAttempts: 2, baseDelayMs: 5, factor: 1 },
 		});
 
-		let caught: RoverError | undefined;
+		let caught: E_MAIL_TRANSPORT_ERROR | undefined;
 		try {
 			await mail.send((m) => m.to("u@x.com").subject("S"));
 		} catch (err) {
-			caught = err as RoverError;
+			caught = err as E_MAIL_TRANSPORT_ERROR;
 		}
 		expect(caught).toBeDefined();
 		expect(caught?.context.attempts).toBe("2");

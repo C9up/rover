@@ -1,4 +1,6 @@
-import { RoverError } from "../RoverError.js";
+import type { Exception } from "@c9up/flare";
+import { E_INVALID_CONFIG } from "../errors.js";
+import { withHelp } from "../help.js";
 
 /** Hosts a key sent over plain HTTP never leaves: a local mock of the API. */
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -42,12 +44,11 @@ export function apiBaseUrl(
 	return `${url.origin}${url.pathname}`.replace(/\/+$/, "");
 }
 
-function invalid(provider: string, value: string, reason: string): RoverError {
-	return new RoverError(
-		"E_MAIL_PROVIDER_CONFIG",
-		`${provider} baseUrl "${value}" is refused: ${reason}.`,
-		{
-			hint: "Every request to this URL carries the API key. Leave baseUrl out for the provider's own endpoint.",
-		},
+function invalid(provider: string, value: string, reason: string): Exception {
+	return withHelp(
+		new E_INVALID_CONFIG(
+			`${provider} baseUrl "${value}" is refused: ${reason}.`,
+		),
+		"Every request to this URL carries the API key. Leave baseUrl out for the provider's own endpoint.",
 	);
 }

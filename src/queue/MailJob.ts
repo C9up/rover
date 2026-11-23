@@ -1,7 +1,8 @@
 import { Buffer } from "node:buffer";
+import { E_MAIL_JOB_MALFORMED } from "../errors.js";
 import { field, isRecord, stringField } from "../guards.js";
+import { withHelp } from "../help.js";
 import type { MailAttachment, MailMessage } from "../Mail.js";
-import { RoverError } from "../RoverError.js";
 
 export const MAIL_JOB_NAME = "mail.send";
 
@@ -77,20 +78,20 @@ export class MailJobHandler implements BayJobHandlerLike {
  */
 function validatePayload(payload: unknown): MailJobPayload {
 	if (!payload || typeof payload !== "object") {
-		throw new RoverError(
-			"E_MAIL_JOB_MALFORMED",
-			"Mail job payload is missing or not an object",
-			{ hint: "Queue driver returned a non-object — check serialisation." },
+		throw withHelp(
+			new E_MAIL_JOB_MALFORMED([
+				"Mail job payload is missing or not an object",
+			]),
+			"Queue driver returned a non-object — check serialisation.",
 		);
 	}
 	const message = field(payload, "message");
 	if (!isRecord(message)) {
-		throw new RoverError(
-			"E_MAIL_JOB_MALFORMED",
-			"Mail job payload.message is missing or not an object",
-			{
-				hint: "Payload shape must be { message: MailMessage, transport?: string }.",
-			},
+		throw withHelp(
+			new E_MAIL_JOB_MALFORMED([
+				"Mail job payload.message is missing or not an object",
+			]),
+			"Payload shape must be { message: MailMessage, transport?: string }.",
 		);
 	}
 	// cc/bcc/headers are optional at the queue boundary: an older producer may
@@ -102,12 +103,11 @@ function validatePayload(payload: unknown): MailJobPayload {
 		headers: message.headers ?? {},
 	};
 	if (!hasMailMessageShape(normalised)) {
-		throw new RoverError(
-			"E_MAIL_JOB_MALFORMED",
-			"Mail job payload.message does not match MailMessage shape",
-			{
-				hint: "Expected `{ from: Recipient, to: Recipient[], ..., attachments: [] }`.",
-			},
+		throw withHelp(
+			new E_MAIL_JOB_MALFORMED([
+				"Mail job payload.message does not match MailMessage shape",
+			]),
+			"Expected `{ from: Recipient, to: Recipient[], ..., attachments: [] }`.",
 		);
 	}
 	return { message: normalised, transport: stringField(payload, "transport") };

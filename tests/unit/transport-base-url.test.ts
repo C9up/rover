@@ -2,8 +2,10 @@
  * Every request to a transport's `baseUrl` carries the provider's API key, so
  * the URL is checked before the transport exists.
  */
+
+import type { Exception } from "@c9up/flare";
 import { describe, expect, it } from "vitest";
-import { RoverError } from "../../src/RoverError.js";
+import { E_INVALID_CONFIG } from "../../src/errors.js";
 import { BrevoTransport } from "../../src/transports/BrevoTransport.js";
 import { apiBaseUrl } from "../../src/transports/baseUrl.js";
 import { MailgunTransport } from "../../src/transports/MailgunTransport.js";
@@ -12,11 +14,11 @@ import { SparkPostTransport } from "../../src/transports/SparkPostTransport.js";
 
 const FALLBACK = "https://api.provider.test";
 
-function refusal(value: string): RoverError | undefined {
+function refusal(value: string): Exception | undefined {
 	try {
 		apiBaseUrl("Mailgun", value, FALLBACK);
 	} catch (error) {
-		if (error instanceof RoverError) return error;
+		if (error instanceof E_INVALID_CONFIG) return error;
 		throw error;
 	}
 	return undefined;
@@ -52,7 +54,7 @@ describe("transport baseUrl", () => {
 			"https://proxy.acme.test/#x",
 		]) {
 			const error = refusal(value);
-			expect(error?.code).toBe("E_MAIL_PROVIDER_CONFIG");
+			expect(error?.code).toBe("E_INVALID_CONFIG");
 		}
 	});
 

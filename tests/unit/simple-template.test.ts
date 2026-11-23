@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { RoverError } from "../../src/RoverError.js";
+import { E_MAIL_TEMPLATE_NOT_FOUND } from "../../src/errors.js";
 import {
 	render,
 	renderFile,
@@ -130,8 +130,10 @@ describe("rover > SimpleTemplate", () => {
 			});
 		});
 
-		it("missing template error is a RoverError", async () => {
-			await expect(renderFile("nope", {})).rejects.toBeInstanceOf(RoverError);
+		it("missing template error is an E_MAIL_TEMPLATE_NOT_FOUND", async () => {
+			await expect(renderFile("nope", {})).rejects.toBeInstanceOf(
+				E_MAIL_TEMPLATE_NOT_FOUND,
+			);
 		});
 
 		it("rejects absolute paths outside viewsRoot (path traversal guard)", async () => {

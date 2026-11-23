@@ -1,8 +1,8 @@
+import { E_MAIL_TRANSPORT_ERROR } from "../errors.js";
 import { field, stringField } from "../guards.js";
-import { RoverError } from "../RoverError.js";
 
 /**
- * Wrap a `fetch()` rejection into the uniform `E_MAIL_PROVIDER_ERROR` shape
+ * Wrap a `fetch()` rejection into the uniform `E_MAIL_TRANSPORT_ERROR` shape
  * so the retry classifier can recognise transient network failures
  * (ECONNRESET / ENOTFOUND / EAI_AGAIN / ...).
  *
@@ -14,8 +14,8 @@ import { RoverError } from "../RoverError.js";
 export function wrapFetchNetworkError(
 	provider: string,
 	err: unknown,
-): RoverError {
-	if (err instanceof RoverError) return err;
+): E_MAIL_TRANSPORT_ERROR {
+	if (err instanceof E_MAIL_TRANSPORT_ERROR) return err;
 	const networkCode =
 		stringField(err, "code") ?? stringField(field(err, "cause"), "code");
 	const message = stringField(err, "message") ?? "fetch failed";
@@ -25,12 +25,12 @@ export function wrapFetchNetworkError(
 		providerMessage: message,
 	};
 	if (networkCode) ctx.networkCode = networkCode;
-	return new RoverError(
-		"E_MAIL_PROVIDER_ERROR",
+	return new E_MAIL_TRANSPORT_ERROR(
 		`${provider} fetch failed${networkCode ? ` (${networkCode})` : ""}`,
 		{
-			hint: "Inspect `context.networkCode` (ECONNRESET / ENOTFOUND / ...) — the retry classifier treats known transient errnos as retryable.",
 			context: ctx,
+			help: "Inspect `context.networkCode` (ECONNRESET / ENOTFOUND / ...) — the retry classifier treats known transient errnos as retryable.",
+			cause: err,
 		},
 	);
 }
@@ -44,7 +44,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
  * Without one, a stalled provider connection never settles: the send hangs,
  * the queue worker holding it hangs with it, and enough of them stop mail going
  * out at all — with no error to explain the silence. A timeout surfaces as the
- * same `E_MAIL_PROVIDER_ERROR` shape the retry classifier already understands, so
+ * same `E_MAIL_TRANSPORT_ERROR` shape the retry classifier already understands, so
  * it is retried like any other transient network failure.
  */
 export async function fetchWithTimeout(
@@ -61,12 +61,11 @@ export async function fetchWithTimeout(
 		});
 	} catch (err) {
 		if (err instanceof Error && err.name === "TimeoutError") {
-			throw new RoverError(
-				"E_MAIL_PROVIDER_ERROR",
+			throw new E_MAIL_TRANSPORT_ERROR(
 				`${provider} did not answer within ${timeoutMs}ms.`,
 				{
 					context: { provider, upstreamStatus: "0", networkCode: "ETIMEDOUT" },
-					hint: "Raise `requestTimeoutMs` for large attachments, or check connectivity to the provider.",
+					help: "Raise `requestTimeoutMs` for large attachments, or check connectivity to the provider.",
 				},
 			);
 		}

@@ -1,4 +1,11 @@
+import {
+	E_INVALID_CONFIG,
+	E_MAIL_FIELD_UNSUPPORTED,
+	E_MAIL_INVALID_MESSAGE,
+	E_MAIL_TRANSPORT_ERROR,
+} from "../errors.js";
 import { field, stringField } from "../guards.js";
+import { withHelp } from "../help.js";
 import {
 	type MailMessage,
 	type MailSendOutcome,
@@ -6,7 +13,6 @@ import {
 	registerTransport,
 } from "../Mail.js";
 import { composeMime } from "../mime.js";
-import { RoverError } from "../RoverError.js";
 import { apiBaseUrl } from "./baseUrl.js";
 import { fetchWithTimeout, wrapFetchNetworkError } from "./fetchError.js";
 
@@ -33,22 +39,29 @@ export class MailgunTransport implements MailTransport {
 			typeof config.apiKey === "string" ? normalizeConfig(config.apiKey) : "";
 		const domain =
 			typeof config.domain === "string" ? normalizeConfig(config.domain) : "";
-		if (!apiKey || !domain) {
-			throw new RoverError(
-				"E_MAIL_PROVIDER_CONFIG",
-				"Mailgun transport requires apiKey and domain",
-				{ hint: "Set { apiKey, domain } in your mail config." },
-			);
+		for (const [property, value] of [
+			["apiKey", apiKey],
+			["domain", domain],
+		] as const) {
+			if (!value) {
+				throw withHelp(
+					new E_INVALID_CONFIG(
+						`Invalid config for "mailgun" transport. The "${property}" property is missing`,
+					),
+					"Set { apiKey, domain } in your mail config.",
+				);
+			}
 		}
 		this.#domain = domain;
 
 		// Region: reject non-string when *defined* (wrong type signals a config
 		// bug — defaulting to "us" under those conditions is a compliance risk).
 		if (config.region !== undefined && typeof config.region !== "string") {
-			throw new RoverError(
-				"E_MAIL_PROVIDER_CONFIG",
-				`Mailgun region must be a string ("us" or "eu"), got ${typeof config.region}`,
-				{ hint: "Set config.region explicitly as 'us' or 'eu'." },
+			throw withHelp(
+				new E_INVALID_CONFIG(
+					`Mailgun region must be a string ("us" or "eu"), got ${typeof config.region}`,
+				),
+				"Set config.region explicitly as 'us' or 'eu'.",
 			);
 		}
 		const rawRegion =
@@ -56,12 +69,11 @@ export class MailgunTransport implements MailTransport {
 				? normalizeConfig(config.region).toLowerCase()
 				: "us";
 		if (rawRegion !== "us" && rawRegion !== "eu") {
-			throw new RoverError(
-				"E_MAIL_PROVIDER_CONFIG",
-				`Mailgun region must be "us" or "eu", got "${rawRegion}"`,
-				{
-					hint: "Use { region: 'us' } or { region: 'eu' }. A typo silently routing EU traffic to US infrastructure is a compliance risk.",
-				},
+			throw withHelp(
+				new E_INVALID_CONFIG(
+					`Mailgun region must be "us" or "eu", got "${rawRegion}"`,
+				),
+				"Use { region: 'us' } or { region: 'eu' }. A typo silently routing EU traffic to US infrastructure is a compliance risk.",
 			);
 		}
 		const url =
@@ -79,12 +91,11 @@ export class MailgunTransport implements MailTransport {
 
 	async send(message: MailMessage): Promise<MailSendOutcome> {
 		if (message.envelope?.from !== undefined) {
-			throw new RoverError(
-				"E_MAIL_FIELD_UNSUPPORTED",
+			throw new E_MAIL_FIELD_UNSUPPORTED(
 				"The mailgun transport cannot set the envelope sender; Mailgun uses the domain's own bounce address.",
+				{ provider: "mailgun", field: "envelope" },
 				{
-					hint: "Send this message through an SMTP mailer, or drop envelope().from.",
-					context: { provider: "mailgun", field: "envelope" },
+					help: "Send this message through an SMTP mailer, or drop envelope().from.",
 				},
 			);
 		}
@@ -93,10 +104,9 @@ export class MailgunTransport implements MailTransport {
 			message.cc.length === 0 &&
 			message.bcc.length === 0
 		) {
-			throw new RoverError(
-				"E_MAIL_PROVIDER_CONFIG",
-				"Mail message has no recipients",
-				{ hint: "Set at least one `to`, `cc`, or `bcc` before sending." },
+			throw withHelp(
+				new E_MAIL_INVALID_MESSAGE(["Mail message has no recipients"]),
+				"Set at least one `to`, `cc`, or `bcc` before sending.",
 			);
 		}
 
@@ -160,7 +170,7 @@ export class MailgunTransport implements MailTransport {
 }
 
 /**
- * Map an upstream refusal onto the uniform `E_MAIL_PROVIDER_ERROR` every
+ * Map an upstream refusal onto the uniform `E_MAIL_TRANSPORT_ERROR` every
  * transport raises, so retry and observability never branch on the provider.
  *
  * The shape is what the HTTP response gives: a status, the body as the
@@ -168,8 +178,8 @@ export class MailgunTransport implements MailTransport {
  * backoff honours. A network failure never reaches here; `wrapFetchNetworkError`
  * carries the errno so the retry predicate can still see it.
  */
-function wrapMailgunError(err: unknown): RoverError {
-	if (err instanceof RoverError) return err;
+function wrapMailgunError(err: unknown): E_MAIL_TRANSPORT_ERROR {
+	if (err instanceof E_MAIL_TRANSPORT_ERROR) return err;
 	// Coerce a string-typed status into a number: the field is built here, but
 	// a caller injecting a fake response may still hand one over as text.
 	const statusNum = Number(field(err, "status"));
@@ -195,14 +205,10 @@ function wrapMailgunError(err: unknown): RoverError {
 	if (typeof retryAfter === "string" && retryAfter !== "") {
 		ctx.retryAfter = retryAfter;
 	}
-	return new RoverError(
-		"E_MAIL_PROVIDER_ERROR",
-		`Mailgun returned ${status || "unknown"}`,
-		{
-			hint: "Inspect `context.upstreamStatus` (HTTP) or `context.networkCode` (ECONNRESET/etc.) to decide retry eligibility.",
-			context: ctx,
-		},
-	);
+	return new E_MAIL_TRANSPORT_ERROR(`Mailgun returned ${status || "unknown"}`, {
+		context: ctx,
+		help: "Inspect `context.upstreamStatus` (HTTP) or `context.networkCode` (ECONNRESET/etc.) to decide retry eligibility.",
+	});
 }
 
 registerTransport("mailgun", (config) => new MailgunTransport(config));
