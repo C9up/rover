@@ -1,10 +1,5 @@
 import { Buffer } from "node:buffer";
-import {
-	createHmac,
-	createSign,
-	sign as edSign,
-	generateKeyPairSync,
-} from "node:crypto";
+import { createHmac, createSign, generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type {
 	WebhookEmitter,
@@ -38,9 +33,6 @@ const makeResponse = (): MockResponse => {
 			r._status = code;
 			return r;
 		},
-		header(_n: string, _v: string) {
-			return r;
-		},
 		json(data: unknown) {
 			r._body = data;
 		},
@@ -61,7 +53,7 @@ const makeCtx = (
 		ctx: {
 			request: {
 				header: (name) => lowered[name.toLowerCase()],
-				rawBody: () => body,
+				rawBuffer: () => body,
 			},
 			response: res,
 		},
@@ -248,13 +240,15 @@ describe("rover > webhooks > Mailgun", () => {
 });
 
 describe("rover > webhooks > SendGrid", () => {
-	// Generate a fresh Ed25519 keypair per test run so we don't need a baked-in key.
-	const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+	// A fresh key of the kind SendGrid issues (ECDSA, P-256) per run.
+	const { publicKey, privateKey } = generateKeyPairSync("ec", {
+		namedCurve: "prime256v1",
+	});
 	const publicKeyPem = publicKey
 		.export({ format: "pem", type: "spki" })
 		.toString();
 
-	it("verifies Ed25519 and emits per event entry", async () => {
+	it("verifies ECDSA P-256 over SHA-256 and emits per event entry", async () => {
 		const timestamp = freshTimestamp();
 		const events = [
 			{
@@ -273,7 +267,7 @@ describe("rover > webhooks > SendGrid", () => {
 		];
 		const body = Buffer.from(JSON.stringify(events));
 		const toSign = Buffer.concat([Buffer.from(timestamp, "utf8"), body]);
-		const signature = edSign(null, toSign, privateKey).toString("base64");
+		const signature = sign("sha256", toSign, privateKey).toString("base64");
 
 		const emitter = new Emitter();
 		const handler = createSendGridWebhookHandler({
@@ -306,7 +300,7 @@ describe("rover > webhooks > SendGrid", () => {
 		];
 		const body = Buffer.from(JSON.stringify(events));
 		const toSign = Buffer.concat([Buffer.from(timestamp, "utf8"), body]);
-		const signature = edSign(null, toSign, privateKey).toString("base64");
+		const signature = sign("sha256", toSign, privateKey).toString("base64");
 
 		const emitter = new Emitter();
 		const handler = createSendGridWebhookHandler({
@@ -593,6 +587,142 @@ describe("rover > the Resend signing secret is validated at config time", () => 
 			expect.objectContaining({
 				code: "E_ROVER_WEBHOOK_KEY_MISSING",
 				message: expect.stringMatching(/secret is required/),
+			}),
+		);
+	});
+});
+
+describe("rover > webhooks > SendGrid signs with ECDSA P-256 over SHA-256", () => {
+	// SendGrid's own vector: @sendgrid/eventwebhook 8.0.0, src/eventwebhook.spec.js.
+	const PUBLIC_KEY =
+		"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE83T4O/n84iotIvIW4mdBgQ/7dAfSmpqIM8kF9mN1flpVKS3GRqe62gw+2fNNRaINXvVpiglSI8eNEc6wEA3F+g==";
+	const SIGNATURE =
+		"MEUCIGHQVtGj+Y3LkG9fLcxf3qfI10QysgDWmMOVmxG0u6ZUAiEAyBiXDWzM+uOe5W0JuG+luQAbPIqHh89M15TluLtEZtM=";
+	const TIMESTAMP = "1600112502";
+	// The trailing CRLF is part of what SendGrid signed.
+	const PAYLOAD = `${JSON.stringify([
+		{
+			email: "hello@world.com",
+			event: "dropped",
+			reason: "Bounced Address",
+			sg_event_id: "ZHJvcC0xMDk5NDkxOS1MUnpYbF9OSFN0T0doUTRrb2ZTbV9BLTA",
+			sg_message_id:
+				"LRzXl_NHStOGhQ4kofSm_A.filterdrecv-p3mdw1-756b745b58-kmzbl-18-5F5FC76C-9.0",
+			"smtp-id": "<LRzXl_NHStOGhQ4kofSm_A@ismtpd0039p1iad1.sendgrid.net>",
+			timestamp: 1600112492,
+		},
+	])}\r\n`;
+
+	const deliver = async (
+		body: string,
+		timestamp: string,
+		signature = SIGNATURE,
+	) => {
+		const emitter = new Emitter();
+		const handler = createSendGridWebhookHandler({
+			publicKey: PUBLIC_KEY,
+			emitter,
+			// The vector is from 2020.
+			maxAgeSeconds: Number.POSITIVE_INFINITY,
+		});
+		const { ctx, res } = makeCtx(Buffer.from(body), {
+			"x-twilio-email-event-webhook-signature": signature,
+			"x-twilio-email-event-webhook-timestamp": timestamp,
+		});
+		await handler(ctx);
+		return { status: res._status, events: emitter.events.map((e) => e.name) };
+	};
+
+	it("verifies SendGrid's published vector", async () => {
+		expect(await deliver(PAYLOAD, TIMESTAMP)).toEqual({
+			status: 200,
+			events: ["mail.failed"],
+		});
+	});
+
+	it("refuses the vector with a tampered body, a shifted timestamp or a mangled signature", async () => {
+		const refused = { status: 401, events: [] };
+		expect(
+			await deliver(
+				PAYLOAD.replace("hello@world.com", "other@world.com"),
+				TIMESTAMP,
+			),
+		).toEqual(refused);
+		expect(await deliver(PAYLOAD.trimEnd(), TIMESTAMP)).toEqual(refused);
+		expect(await deliver(PAYLOAD, "1600112503")).toEqual(refused);
+		expect(
+			await deliver(PAYLOAD, TIMESTAMP, "bm90IGEgREVSIHNpZ25hdHVyZQ=="),
+		).toEqual(refused);
+	});
+
+	it("verifies over SHA-256 only, whatever digest a signer picks", async () => {
+		const { publicKey, privateKey } = generateKeyPairSync("ec", {
+			namedCurve: "prime256v1",
+		});
+		const handler = createSendGridWebhookHandler({
+			publicKey: publicKey
+				.export({ format: "der", type: "spki" })
+				.toString("base64"),
+			emitter: new Emitter(),
+		});
+		const timestamp = freshTimestamp();
+		const body = Buffer.from('[{"event":"delivered","email":"a@example.com"}]');
+		const statuses: Record<string, number> = {};
+		for (const digest of ["sha256", "sha1", "sha384", "sha512"]) {
+			const signature = sign(
+				digest,
+				Buffer.concat([Buffer.from(timestamp), body]),
+				privateKey,
+			).toString("base64");
+			const { ctx, res } = makeCtx(body, {
+				"x-twilio-email-event-webhook-signature": signature,
+				"x-twilio-email-event-webhook-timestamp": timestamp,
+			});
+			await handler(ctx);
+			statuses[digest] = res._status;
+		}
+		expect(statuses).toEqual({
+			sha256: 200,
+			sha1: 401,
+			sha384: 401,
+			sha512: 401,
+		});
+	});
+
+	it("refuses at creation a key SendGrid does not issue, naming what it does", () => {
+		const spki = (key: {
+			export(o: { format: "pem"; type: "spki" }): string | Buffer;
+		}) => key.export({ format: "pem", type: "spki" }).toString();
+		const others = {
+			"a key of type ed25519": spki(generateKeyPairSync("ed25519").publicKey),
+			"an EC key on secp384r1": spki(
+				generateKeyPairSync("ec", { namedCurve: "secp384r1" }).publicKey,
+			),
+			"a key of type rsa": spki(
+				generateKeyPairSync("rsa", { modulusLength: 1024 }).publicKey,
+			),
+		};
+		for (const [found, publicKey] of Object.entries(others)) {
+			expect(() =>
+				createSendGridWebhookHandler({ publicKey, emitter: new Emitter() }),
+			).toThrow(
+				expect.objectContaining({
+					code: "E_ROVER_WEBHOOK_INVALID_KEY",
+					message: expect.stringContaining(
+						`publicKey is ${found}; SendGrid signs`,
+					),
+				}),
+			);
+		}
+		expect(() =>
+			createSendGridWebhookHandler({
+				publicKey: "not a key",
+				emitter: new Emitter(),
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "E_ROVER_WEBHOOK_INVALID_KEY",
+				message: expect.stringContaining("is not a public key"),
 			}),
 		);
 	});

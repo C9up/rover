@@ -99,7 +99,7 @@ export function createMailgunWebhookHandler(
 		: Number.MAX_SAFE_INTEGER / 1000;
 
 	return async (ctx: WebhookHttpContext): Promise<void> => {
-		const raw = await Promise.resolve(ctx.request.rawBody());
+		const raw = ctx.request.rawBuffer();
 		let payload: unknown;
 		try {
 			payload = JSON.parse(raw.toString("utf8"));

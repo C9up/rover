@@ -159,6 +159,15 @@ export const E_ROVER_WEBHOOK_INVALID_SECRET = createError<[string]>(
 	"E_ROVER_WEBHOOK_INVALID_SECRET",
 );
 
+/**
+ * The SendGrid webhook's `publicKey` is not a public key, or not the ECDSA
+ * P-256 key SendGrid signs its event webhook with.
+ */
+export const E_ROVER_WEBHOOK_INVALID_KEY = createError<[string]>(
+	"createSendGridWebhookHandler: %s",
+	"E_ROVER_WEBHOOK_INVALID_KEY",
+);
+
 /** An internal invariant broke; report it as a bug. */
 export const E_ROVER_INTERNAL = createError<[string]>("%s", "E_ROVER_INTERNAL");
 

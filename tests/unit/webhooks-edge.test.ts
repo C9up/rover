@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { createHmac, sign as edSign, generateKeyPairSync } from "node:crypto";
+import { createHmac, generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type {
 	WebhookEmitter,
@@ -31,9 +31,6 @@ function makeResponse(): MockResponse {
 			r._status = code;
 			return r;
 		},
-		header(_n: string, _v: string) {
-			return r;
-		},
 		json(data: unknown) {
 			r._body = data;
 		},
@@ -51,8 +48,8 @@ function makeCtx(
 	return {
 		ctx: {
 			request: {
-				rawBody() {
-					return Promise.resolve(body);
+				rawBuffer() {
+					return body;
 				},
 				header(name) {
 					return lowered[name.toLowerCase()];
@@ -67,7 +64,9 @@ function makeCtx(
 const freshTimestamp = (): string => Math.floor(Date.now() / 1000).toString();
 
 describe("rover > webhooks > SendGrid edge cases", () => {
-	const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+	const { privateKey, publicKey } = generateKeyPairSync("ec", {
+		namedCurve: "prime256v1",
+	});
 	const publicKeyPem = publicKey
 		.export({ type: "spki", format: "pem" })
 		.toString();
@@ -113,7 +112,7 @@ describe("rover > webhooks > SendGrid edge cases", () => {
 		const body = Buffer.from("{not json");
 		const timestamp = freshTimestamp();
 		const toSign = Buffer.concat([Buffer.from(timestamp, "utf8"), body]);
-		const sig = edSign(null, toSign, privateKey).toString("base64");
+		const sig = sign("sha256", toSign, privateKey).toString("base64");
 		const emitter = new Emitter();
 		const handler = createSendGridWebhookHandler({
 			publicKey: publicKeyPem,
@@ -132,7 +131,7 @@ describe("rover > webhooks > SendGrid edge cases", () => {
 		const body = Buffer.from(JSON.stringify({ event: "delivered" }));
 		const timestamp = freshTimestamp();
 		const toSign = Buffer.concat([Buffer.from(timestamp, "utf8"), body]);
-		const sig = edSign(null, toSign, privateKey).toString("base64");
+		const sig = sign("sha256", toSign, privateKey).toString("base64");
 		const emitter = new Emitter();
 		const handler = createSendGridWebhookHandler({
 			publicKey: publicKeyPem,
@@ -152,7 +151,7 @@ describe("rover > webhooks > SendGrid edge cases", () => {
 		const body = Buffer.from(JSON.stringify(events));
 		const timestamp = freshTimestamp();
 		const toSign = Buffer.concat([Buffer.from(timestamp, "utf8"), body]);
-		const sig = edSign(null, toSign, privateKey).toString("base64");
+		const sig = sign("sha256", toSign, privateKey).toString("base64");
 		const emitter = new Emitter();
 		const handler = createSendGridWebhookHandler({
 			publicKey: publicKeyBase64, // un-wrapped
@@ -175,7 +174,7 @@ describe("rover > webhooks > SendGrid edge cases", () => {
 		const body = Buffer.from(JSON.stringify(events));
 		const timestamp = freshTimestamp();
 		const toSign = Buffer.concat([Buffer.from(timestamp, "utf8"), body]);
-		const sig = edSign(null, toSign, privateKey).toString("base64");
+		const sig = sign("sha256", toSign, privateKey).toString("base64");
 		const emitter = new Emitter();
 		const handler = createSendGridWebhookHandler({
 			publicKey: publicKeyPem,
@@ -198,7 +197,7 @@ describe("rover > webhooks > SendGrid edge cases", () => {
 		const body = Buffer.from(JSON.stringify(events));
 		const timestamp = freshTimestamp();
 		const toSign = Buffer.concat([Buffer.from(timestamp, "utf8"), body]);
-		const sig = edSign(null, toSign, privateKey).toString("base64");
+		const sig = sign("sha256", toSign, privateKey).toString("base64");
 		const emitter = new Emitter();
 		const handler = createSendGridWebhookHandler({
 			publicKey: publicKeyPem,

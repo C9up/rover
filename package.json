@@ -2,6 +2,7 @@
   "name": "@c9up/rover",
   "version": "0.1.24",
   "description": "Mail transport for Ream — SMTP, log, and pluggable transports",
+  "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -71,6 +72,8 @@
     "build": "tsc -p tsconfig.build.json",
     "build:napi": "cargo build --release -p rover-template-engine-napi && pnpm build:napi-types && node scripts/copy-napi.mjs",
     "build:napi-types": "node scripts/build-napi-types.mjs",
+    "platforms:sync": "node scripts/platform-packages.mjs",
+    "platforms:check": "node scripts/platform-packages.mjs --check",
     "test": "vitest run",
     "lint": "biome check src/ tests/",
     "test:coverage": "vitest run --coverage",
@@ -80,6 +83,13 @@
   "dependencies": {
     "@c9up/flare": "^0.1.0",
     "nodemailer": "^10.1.4"
+  },
+  "optionalDependencies": {
+    "@c9up/rover-linux-x64-gnu": "0.1.24",
+    "@c9up/rover-linux-arm64-gnu": "0.1.24",
+    "@c9up/rover-darwin-x64": "0.1.24",
+    "@c9up/rover-darwin-arm64": "0.1.24",
+    "@c9up/rover-win32-x64-msvc": "0.1.24"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.8",
@@ -120,7 +130,7 @@
     "stubs",
     "README.md",
     "LICENSE",
-    "index.*.node"
+    "THIRD-PARTY-NOTICES.md"
   ],
   "publishConfig": {
     "main": "./dist/index.js",

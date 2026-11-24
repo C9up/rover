@@ -35,15 +35,12 @@ async function post(
 			out.status = code;
 			return response;
 		},
-		header() {
-			return response;
-		},
 		json(data: unknown) {
 			out.body = data;
 		},
 	};
 	const ctx: WebhookHttpContext = {
-		request: { header: () => undefined, rawBody: () => body },
+		request: { header: () => undefined, rawBuffer: () => body },
 		response,
 	};
 	await handler(ctx, async () => {});

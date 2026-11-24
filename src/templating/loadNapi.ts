@@ -1,12 +1,13 @@
-// Loads the native `rover-template-engine-napi` binary built by
-// `scripts/copy-napi.mjs` and re-throws load failures as
-// `E_MAIL_TEMPLATE_NAPI_REQUIRED` (D55.2.4) — actionable hint points at
-// `pnpm --filter @c9up/rover build:napi`.
+// Loads rover's native template engine: the local build (`index.<suffix>.node`
+// at the package root, written by `scripts/copy-napi.mjs`) when there is one,
+// else the platform package `@c9up/rover-<suffix>` the package manager
+// installed as an optional dependency. A failure throws
+// `E_MAIL_TEMPLATE_NAPI_REQUIRED`, whose message and `help` say what to do and
+// whose `cause` is the load error.
 //
-// Per cerebrum 2026-04-15 there is NO JS fallback. If the binary fails to load,
-// consumers get a typed rover error. Zero `as` / `any` per `feedback_no_any_types`
-// — every boundary is narrowed with a type guard.
+// There is no JavaScript fallback: without the engine, no template renders.
 
+import { arch, platform } from "node:process";
 import { Exception } from "@c9up/flare";
 import {
 	E_MAIL_TEMPLATE_NAPI_REQUIRED,
@@ -21,6 +22,12 @@ import {
 	muslHint,
 	supportedTargets,
 } from "../vendor/nativeBinary.js";
+
+/**
+ * The npm name the platform packages derive from: `@c9up/rover-<suffix>`,
+ * one per target, each an optional dependency pinned to this version.
+ */
+const PACKAGE_NAME = "@c9up/rover";
 
 export type NativeRoverIr = import("../native/generated.js").RoverIr;
 
@@ -49,31 +56,49 @@ let cachedNative: NativeExports | undefined;
 export function getNative(): NativeExports {
 	if (cachedNative !== undefined) return cachedNative;
 
-	// The resolution and the export check are shared; the refusals are rover's,
-	// with rover's code on them.
-	const attempt = loadNativeBinary(isNativeExports, NATIVE_CALLS);
+	// The resolution and the export check are shared; the refusal is rover's,
+	// with rover's code on it.
+	const attempt = loadNativeBinary(isNativeExports, NATIVE_CALLS, {
+		packageName: PACKAGE_NAME,
+	});
 	if (attempt.loaded) {
 		cachedNative = attempt.binary;
 		return cachedNative;
 	}
-	const { suffix, cause } = attempt;
-	if (suffix === undefined) {
-		throw withHelp(
-			new E_MAIL_TEMPLATE_NAPI_REQUIRED([
-				`No @c9up/rover native binary for this platform. Supported: ${supportedTargets().join(", ")}.`,
-			]),
-			"Build the native binary on a supported platform with 'pnpm --filter @c9up/rover build:napi'.",
-		);
-	}
-	const causeMessage = cause instanceof Error ? cause.message : String(cause);
+	const fix = remedy(attempt.suffix, attempt.platformPackage);
 	throw withHelp(
 		new E_MAIL_TEMPLATE_NAPI_REQUIRED(
 			[
-				`@c9up/rover native binary 'index.${suffix}.node' not found, failed to load, or is stale — run 'pnpm --filter @c9up/rover build:napi' to build it.${muslHint()} Cause: ${causeMessage}`,
+				"The rover Rust template engine is required but not loaded.\n" +
+					`  Fix: ${fix}`,
 			],
-			{ cause },
+			attempt.cause === undefined ? undefined : { cause: attempt.cause },
 		),
-		"Run 'pnpm --filter @c9up/rover build:napi' to compile the native template engine.",
+		fix,
+	);
+}
+
+/**
+ * What to do about a missing engine, phrased for whoever has to fix it.
+ *
+ * An application installs the platform package; a checkout of rover builds
+ * the local binary. The load error itself is not in here: it names paths on
+ * the host, so it travels as the refusal's `cause` instead of its message.
+ */
+function remedy(
+	suffix: string | undefined,
+	platformPackage: string | undefined,
+): string {
+	if (suffix === undefined) {
+		return `no prebuilt binary for ${platform}-${arch}; rover ships one for ${supportedTargets().join(", ")}.`;
+	}
+	if (platformPackage === undefined) {
+		return `index.${suffix}.node failed to load. Rebuild it: cd packages/rover && pnpm build:napi`;
+	}
+	return (
+		`install ${platformPackage} at the exact version of ${PACKAGE_NAME}: it is the optional dependency that carries the ${suffix} binary, ` +
+		"and an install that omits optional dependencies skips it. " +
+		`In a checkout of rover, build it instead: pnpm build:napi.${muslHint()}`
 	);
 }
 

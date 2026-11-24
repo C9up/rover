@@ -96,7 +96,7 @@ export function createResendWebhookHandler(
 	const maxAgeSeconds = options.maxAgeSeconds ?? 300;
 
 	return async (ctx: WebhookHttpContext): Promise<void> => {
-		const raw = await Promise.resolve(ctx.request.rawBody());
+		const raw = ctx.request.rawBuffer();
 		const id = ctx.request.header("svix-id");
 		const timestamp = ctx.request.header("svix-timestamp");
 		const signatureHeader = ctx.request.header("svix-signature");
